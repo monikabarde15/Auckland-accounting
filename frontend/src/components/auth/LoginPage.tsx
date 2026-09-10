@@ -132,43 +132,41 @@ export const LoginPage: React.FC = () => {
             </Button>
           </form>
 
-          {/* Practice Development Quick-Fill (Development Mode Only) */}
-          {import.meta.env.DEV && (
-            <div className="mt-6 pt-5 border-t border-slate-100">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
-                <span>Practice Test Credentials (Dev Mode Only)</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('superadmin@aucklandaccounting.co.nz', 'AculaSuperAdmin2026!')}
-                  className="p-2 text-center rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-[11px] text-slate-700 font-medium transition-colors"
-                >
-                  <div className="font-bold text-slate-900">Super Admin</div>
-                  <div className="text-[10px] text-slate-400">David Chen</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('admin@aucklandaccounting.co.nz', 'AculaAdmin2026!')}
-                  className="p-2 text-center rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-[11px] text-slate-700 font-medium transition-colors"
-                >
-                  <div className="font-bold text-slate-900">Admin</div>
-                  <div className="text-[10px] text-slate-400">Priya Sharma</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('operator@aucklandaccounting.co.nz', 'AculaOperator2026!')}
-                  className="p-2 text-center rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-[11px] text-slate-700 font-medium transition-colors"
-                >
-                  <div className="font-bold text-slate-900">Operator</div>
-                  <div className="text-[10px] text-slate-400">James Wilson</div>
-                </button>
-              </div>
+          {/* Demo & Test Credentials 1-Click Quick-Fill */}
+          <div className="mt-6 pt-5 border-t border-slate-100">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+              <span>Demo & Test Credentials (1-Click Login)</span>
             </div>
-          )}
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleQuickFill('superadmin@aucklandaccounting.co.nz', 'AculaSuperAdmin2026!')}
+                className="p-2 text-center rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-[11px] text-slate-700 font-medium transition-colors cursor-pointer"
+              >
+                <div className="font-bold text-slate-900">Super Admin</div>
+                <div className="text-[10px] text-slate-400">David Chen</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickFill('admin@aucklandaccounting.co.nz', 'AculaAdmin2026!')}
+                className="p-2 text-center rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-[11px] text-slate-700 font-medium transition-colors cursor-pointer"
+              >
+                <div className="font-bold text-slate-900">Admin</div>
+                <div className="text-[10px] text-slate-400">Priya Sharma</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickFill('operator@aucklandaccounting.co.nz', 'AculaOperator2026!')}
+                className="p-2 text-center rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-[11px] text-slate-700 font-medium transition-colors cursor-pointer"
+              >
+                <div className="font-bold text-slate-900">Operator</div>
+                <div className="text-[10px] text-slate-400">James Wilson</div>
+              </button>
+            </div>
+          </div>
         </Card>
 
         {/* Security Notice */}
