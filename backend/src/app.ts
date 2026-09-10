@@ -25,11 +25,34 @@ export function createApp(): Express {
   app.use(helmetFn());
 
   // 2. CORS setup
-  app.use(cors({
-    origin: process.env.CORS_ORIGIN || true,
+  const corsOptions: cors.CorsOptions = {
+    origin: (requestOrigin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!requestOrigin) return callback(null, true);
+
+      const configuredOrigin = process.env.CORS_ORIGIN;
+      if (
+        !configuredOrigin ||
+        configuredOrigin === '*' ||
+        configuredOrigin === 'true' ||
+        requestOrigin.endsWith('.vercel.app') ||
+        requestOrigin.includes('localhost') ||
+        requestOrigin.includes('127.0.0.1') ||
+        (configuredOrigin && configuredOrigin.split(',').map((s) => s.trim()).includes(requestOrigin))
+      ) {
+        return callback(null, true);
+      }
+
+      // Allow all for demo purposes
+      return callback(null, true);
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
-  }));
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    exposedHeaders: ['Set-Cookie']
+  };
+
+  app.use(cors(corsOptions));
 
   // 3. Body parsers & Cookie parser
   app.use(express.json({ limit: '10mb' }));
