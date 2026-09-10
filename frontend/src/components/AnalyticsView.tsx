@@ -97,12 +97,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const handleExportCsv = async () => {
     setIsExporting(true);
     try {
-      let downloadUrl = '/api/reports/export/calls';
+      let downloadUrl = `${api.getBaseUrl()}/reports/export/calls`;
       const dateParams = calculateDateRange();
       const params = new URLSearchParams();
       if (dateParams.startDate) params.append('startDate', dateParams.startDate);
       if (selectedCampaignId !== 'all') {
-        downloadUrl = `/api/reports/export/campaign/${selectedCampaignId}`;
+        downloadUrl = `${api.getBaseUrl()}/reports/export/campaign/${selectedCampaignId}`;
       } else if (params.toString()) {
         downloadUrl += `?${params.toString()}`;
       }

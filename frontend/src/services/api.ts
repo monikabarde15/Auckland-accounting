@@ -75,7 +75,17 @@ class ApiClient {
   private refreshSubscribers: Array<(token: string | null) => void> = [];
 
   constructor() {
-    this.baseUrl = '/api';
+    const customApi = import.meta.env.VITE_API_URL;
+    if (customApi) {
+      const trimmed = customApi.replace(/\/$/, '');
+      this.baseUrl = trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+    } else {
+      this.baseUrl = '/api';
+    }
+  }
+
+  public getBaseUrl(): string {
+    return this.baseUrl;
   }
 
   public setAccessToken(token: string | null) {

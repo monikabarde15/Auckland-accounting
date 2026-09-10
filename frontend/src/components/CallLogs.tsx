@@ -260,7 +260,7 @@ export const CallLogs: React.FC<CallLogsProps> = ({ callLogs: fallbackCallLogs }
       }
 
       const token = api.getAccessToken();
-      const res = await fetch(`/api/reports/export/calls?${params.toString()}`, {
+      const res = await fetch(`${api.getBaseUrl()}/reports/export/calls?${params.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
 
