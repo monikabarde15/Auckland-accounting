@@ -1,0 +1,76 @@
+/* ACULA Design System — Refined B2B Operations Tokens
+   Authoritative, calm, trustworthy SaaS interface for Auckland Accounting Services Ltd
+*/
+
+:root {
+  /* Brand Palette (Deep Navy) */
+  --color-brand: #0f2e4a;
+  --color-brand-hover: #163e63;
+  --color-brand-active: #091e31;
+  --color-brand-light: #f0f4f8;
+  --color-brand-subtle: #e2ebf2;
+
+  /* Surfaces & Backgrounds */
+  --color-app-bg: #f8f9fb;
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f4f6f9;
+  --color-surface-hover: #f1f3f7;
+  --color-surface-selected: #e9edf3;
+
+  /* Borders & Dividers */
+  --color-border: #e2e5ea;
+  --color-border-subtle: #edf0f4;
+  --color-border-strong: #cbd0d8;
+
+  /* Typography Colors */
+  --color-text-primary: #1a1d23;
+  --color-text-secondary: #5f6672;
+  --color-text-muted: #8c94a0;
+  --color-text-disabled: #b5bcc6;
+  --color-text-inverse: #ffffff;
+
+  /* Semantic Feedback Colors */
+  --color-success: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-success-border: #bbf7d0;
+  --color-success-text: #15803d;
+
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+  --color-warning-text: #b45309;
+
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-danger-border: #fecaca;
+  --color-danger-text: #b91c1c;
+
+  --color-info: #2563eb;
+  --color-info-bg: #eff6ff;
+  --color-info-border: #bfdbfe;
+  --color-info-text: #1d4ed8;
+
+  /* Focus Indicator */
+  --color-focus-ring: #0f2e4a;
+
+  /* Spacing Scale */
+  --space-1: 0.25rem; /* 4px */
+  --space-2: 0.5rem;  /* 8px */
+  --space-3: 0.75rem; /* 12px */
+  --space-4: 1rem;    /* 16px */
+  --space-5: 1.25rem; /* 20px */
+  --space-6: 1.5rem;  /* 24px */
+  --space-8: 2rem;    /* 32px */
+
+  /* Radius Scale */
+  --radius-sm: 0.25rem;  /* 4px */
+  --radius-md: 0.375rem; /* 6px */
+  --radius-lg: 0.5rem;   /* 8px */
+  --radius-full: 9999px;
+
+  /* Restrained Shadows */
+  --shadow-subtle: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  --shadow-dropdown: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-modal: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.06);
+}

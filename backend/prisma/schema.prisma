@@ -1,0 +1,555 @@
+// Prisma Schema for Acula - Automated Outbound Calling & IVR Platform
+// Authoritative specification: Acula-new.pdf & Auckland_Accounting_IVR_Development_Plan.pdf
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// 1. IDENTITY & ACCESS CONTROL (RBAC)
+// ==========================================
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  name         String
+  isActive            Boolean              @default(true) @map("is_active")
+  lastLoginAt         DateTime?            @map("last_login_at")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  userRoles           UserRole[]
+  campaigns           Campaign[]
+  auditLogs           AuditLog[]
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+  dncRecords          DncRecord[]
+  consentRecords      ConsentRecord[]
+  questionnaires      Questionnaire[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique // SUPER_ADMIN, ADMIN, OPERATOR
+  description String?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  userRoles   UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  action      String           // e.g. "create", "read", "update", "delete", "execute"
+  subject     String           // e.g. "campaign", "contact", "question", "setting", "user"
+  description String?
+
+  roles       RolePermission[]
+
+  @@unique([action, subject])
+  @@map("permissions")
+}
+
+model UserRole {
+  userId     String   @map("user_id")
+  roleId     String   @map("role_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Session {
+  id                String    @id @default(cuid())
+  userId            String    @map("user_id")
+  tokenHash         String    @unique @map("token_hash")
+  previousTokenHash String?   @map("previous_token_hash")
+  userAgent         String?   @map("user_agent")
+  ipAddress         String?   @map("ip_address")
+  expiresAt         DateTime  @map("expires_at")
+  revokedAt         DateTime? @map("revoked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([previousTokenHash])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("password_reset_tokens")
+}
+
+// ==========================================
+// 2. CONTACTS & DNC SUPPRESSION
+// ==========================================
+
+enum EntityType {
+  INDIVIDUAL
+  COMPANY
+  TRUST
+  PARTNERSHIP
+}
+
+enum ConsentStatus {
+  GRANTED
+  REVOKED
+  PENDING
+  EXPIRED
+}
+
+model Contact {
+  id                 String               @id @default(cuid())
+  name               String
+  companyName        String?              @map("company_name")
+  phoneNumber        String               @map("phone_number") // Standardized E.164
+  email              String?
+  entityType         EntityType           @default(COMPANY) @map("entity_type")
+  irdNumber          String?              @map("ird_number")
+  assignedAccountant String?              @map("assigned_accountant")
+  outstandingBalance Decimal?             @default(0.00) @db.Decimal(12, 2) @map("outstanding_balance")
+  dueDate            DateTime?            @map("due_date")
+  timezone           String               @default("Pacific/Auckland")
+  status             String               @default("ACTIVE")
+  source             String?              @default("MANUAL")
+  tags               String[]             @default([])
+  notes              String?
+  callPermission     Boolean              @default(true) @map("call_permission")
+  isDoNotCall        Boolean              @default(false) @map("is_do_not_call")
+  consentStatus      ConsentStatus        @default(GRANTED) @map("consent_status")
+  consentSource      String?              @map("consent_source")
+  consentTimestamp   DateTime?            @map("consent_timestamp")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  groupMemberships   ContactGroupMember[]
+  campaignContacts   CampaignContact[]
+  callJobs           CallJob[]
+  consentRecords     ConsentRecord[]
+
+  @@index([phoneNumber])
+  @@index([isDoNotCall])
+  @@index([consentStatus])
+  @@index([status])
+  @@map("contacts")
+}
+
+model ContactGroup {
+  id          String               @id @default(cuid())
+  name        String               @unique
+  description String?
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  members     ContactGroupMember[]
+
+  @@map("contact_groups")
+}
+
+model ContactGroupMember {
+  contactId String       @map("contact_id")
+  groupId   String       @map("group_id")
+  joinedAt  DateTime     @default(now()) @map("joined_at")
+
+  contact   Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  group     ContactGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, groupId])
+  @@map("contact_group_members")
+}
+
+model DncRecord {
+  id          String    @id @default(cuid())
+  phoneNumber String    @unique @map("phone_number") // Canonical E.164
+  reason      String?
+  source      String    @default("MANUAL") // MANUAL, CSV, CLIENT_REQUEST, IVR_OPT_OUT
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  createdById String?   @map("created_by_id")
+
+  createdBy   User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([phoneNumber])
+  @@index([isActive])
+  @@map("dnc_records")
+}
+
+model ConsentRecord {
+  id           String        @id @default(cuid())
+  contactId    String        @map("contact_id")
+  status       ConsentStatus @default(GRANTED)
+  source       String        @default("WRITTEN_ENGAGEMENT") // WRITTEN_ENGAGEMENT, VERBAL_PHONE, CLIENT_PORTAL, CSV_IMPORT
+  evidence     String?
+  notes        String?
+  recordedAt   DateTime      @default(now()) @map("recorded_at")
+  recordedById String?       @map("recorded_by_id")
+
+  contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  recordedBy   User?         @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([contactId])
+  @@index([status])
+  @@map("consent_records")
+}
+
+// ==========================================
+// 3. CAMPAIGNS & SCHEDULING
+// ==========================================
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+model Questionnaire {
+  id                 String       @id @default(cuid())
+  title              String
+  description        String?
+  category           String       @default("General") // Tax & Compliance, Audit, Customer Survey, Payroll & PAYE, General
+  startingQuestionId String?      @map("starting_question_id")
+  isActive           Boolean      @default(true) @map("is_active")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  createdById        String?      @map("created_by_id")
+
+  createdBy          User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  questions          Question[]
+  campaigns          Campaign[]
+
+  @@map("questionnaires")
+}
+
+model Campaign {
+  id                   String            @id @default(cuid())
+  name                 String
+  description          String?
+  status               CampaignStatus    @default(DRAFT)
+  callerId             String            @default("+6498370000") @map("caller_id")
+  callerName           String            @default("Auckland Accounting") @map("caller_name")
+  callingStartTime     String            @default("09:00") @map("calling_start_time")
+  callingEndTime       String            @default("18:00") @map("calling_end_time")
+  daysOfWeek           Int[]             @default([1, 2, 3, 4, 5]) @map("days_of_week")
+  timezone             String            @default("Pacific/Auckland")
+  maxConcurrentCalls   Int               @default(5) @map("max_concurrent_calls")
+  dailyCallLimit       Int?              @map("daily_call_limit")
+  maxCalls             Int?              @map("max_calls")
+  maxCost              Decimal?          @db.Decimal(10, 2) @map("max_cost")
+  retryEnabled         Boolean           @default(true) @map("retry_enabled")
+  maxRetries           Int               @default(3) @map("max_retries")
+  retryIntervalMinutes Int               @default(60) @map("retry_interval_minutes")
+  retryOnBusy          Boolean           @default(true) @map("retry_on_busy")
+  retryOnNoAnswer      Boolean           @default(true) @map("retry_on_no_answer")
+  retryOnFailed        Boolean           @default(false) @map("retry_on_failed")
+  startDate            DateTime?         @map("start_date")
+  endDate              DateTime?         @map("end_date")
+  questionnaireId      String?           @map("questionnaire_id")
+  createdById          String?           @map("created_by_id")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  createdBy            User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  questionnaire        Questionnaire?    @relation(fields: [questionnaireId], references: [id], onDelete: SetNull)
+  questions            Question[]
+  campaignContacts     CampaignContact[]
+  callJobs             CallJob[]
+
+  @@index([status])
+  @@index([questionnaireId])
+  @@map("campaigns")
+}
+
+model CampaignContact {
+  campaignId     String    @map("campaign_id")
+  contactId      String    @map("contact_id")
+  status         String    @default("PENDING") // PENDING, EXCLUDED_DNC, CALLED, COMPLETED, FAILED
+  attemptCount   Int       @default(0) @map("attempt_count")
+  lastAttemptAt  DateTime? @map("last_attempt_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  campaign       Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact        Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, contactId])
+  @@map("campaign_contacts")
+}
+
+// ==========================================
+// 4. QUESTION BUILDER & BRANCHING FLOW
+// ==========================================
+
+enum QuestionType {
+  YES_NO
+  MULTIPLE_CHOICE
+  RATING
+  NUMERIC
+  MESSAGE_ONLY
+  TRANSFER
+}
+
+enum NextAction {
+  CONTINUE
+  END_CALL
+  TRANSFER
+  SKIP
+}
+
+model Question {
+  id                    String           @id @default(cuid())
+  questionnaireId       String?          @map("questionnaire_id")
+  campaignId            String?          @map("campaign_id")
+  questionText          String           @map("question_text")
+  name                  String           @default("Step")
+  type                  QuestionType     @default(YES_NO)
+  speechAudioUrl        String?          @map("speech_audio_url")
+  orderNo               Int              @default(1) @map("order_no")
+  isRequired            Boolean          @default(true) @map("is_required")
+  timeoutSeconds        Int              @default(6) @map("timeout_seconds")
+  retryCount            Int              @default(2) @map("retry_count")
+  retryPromptText       String?          @map("retry_prompt_text")
+  defaultNextQuestionId String?          @map("default_next_question_id")
+  minDigits             Int?             @default(1) @map("min_digits")
+  maxDigits             Int?             @default(1) @map("max_digits")
+  finishOnKey           String?          @default("#") @map("finish_on_key")
+  transferPhoneNumber   String?          @map("transfer_phone_number")
+  isActive              Boolean          @default(true) @map("is_active")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  questionnaire         Questionnaire?   @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  campaign              Campaign?        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  options               QuestionOption[]
+  responses             CallResponse[]
+
+  @@index([questionnaireId])
+  @@index([campaignId])
+  @@map("questions")
+}
+
+model QuestionOption {
+  id             String      @id @default(cuid())
+  questionId     String      @map("question_id")
+  optionKey      String      @map("option_key") // e.g. "1", "2", "*"
+  optionLabel    String      @map("option_label")
+  nextQuestionId String?     @map("next_question_id")
+  nextAction     NextAction  @default(CONTINUE) @map("next_action")
+  voiceTriggers  String[]    @default([]) @map("voice_triggers")
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  question       Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("question_options")
+}
+
+// ==========================================
+// 5. CALL ENGINE, ATTEMPTS & RESPONSES
+// ==========================================
+
+enum CallJobStatus {
+  PENDING
+  SCHEDULED
+  DISPATCHED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum CallStatus {
+  QUEUED
+  INITIATED
+  RINGING
+  ANSWERED
+  IN_PROGRESS
+  COMPLETED
+  NO_ANSWER
+  BUSY
+  FAILED
+  CANCELLED
+}
+
+enum InputMethod {
+  DTMF
+  VOICE
+}
+
+model CallJob {
+  id           String        @id @default(cuid())
+  campaignId   String        @map("campaign_id")
+  contactId    String        @map("contact_id")
+  status       CallJobStatus @default(PENDING)
+  priority     Int           @default(0)
+  scheduledFor DateTime      @default(now()) @map("scheduled_for")
+  attempts     Int           @default(0)
+  maxAttempts  Int           @default(3) @map("max_attempts")
+  lockedAt     DateTime?     @map("locked_at")
+  lockedBy     String?       @map("locked_by")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  attemptsList CallAttempt[]
+  retryLogs    RetryLog[]
+
+  @@index([campaignId])
+  @@index([status, scheduledFor])
+  @@map("call_jobs")
+}
+
+model CallAttempt {
+  id               String         @id @default(cuid())
+  callJobId        String         @map("call_job_id")
+  providerCallId   String?        @unique @map("provider_call_id") // Twilio CallSid
+  status           CallStatus     @default(QUEUED)
+  startedAt        DateTime       @default(now()) @map("started_at")
+  endedAt          DateTime?      @map("ended_at")
+  durationSeconds  Int            @default(0) @map("duration_seconds")
+  hangupCause      String?        @map("hangup_cause")
+  providerResponse Json?          @map("provider_response")
+
+  callJob          CallJob        @relation(fields: [callJobId], references: [id], onDelete: Cascade)
+  responses        CallResponse[]
+  events           CallEvent[]
+
+  @@index([callJobId])
+  @@map("call_attempts")
+}
+
+model CallResponse {
+  id            String       @id @default(cuid())
+  callAttemptId String       @map("call_attempt_id")
+  questionId    String       @map("question_id")
+  responseValue String       @map("response_value") // Digit e.g. "1" or numeric value
+  responseText  String?      @map("response_text")  // Text label or speech text
+  inputMethod   InputMethod  @default(DTMF) @map("input_method")
+  isValid       Boolean      @default(true) @map("is_valid")
+  answeredAt    DateTime     @default(now()) @map("answered_at")
+
+  callAttempt   CallAttempt  @relation(fields: [callAttemptId], references: [id], onDelete: Cascade)
+  question      Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([callAttemptId])
+  @@index([questionId])
+  @@map("call_responses")
+}
+
+model CallEvent {
+  id              String      @id @default(cuid())
+  callAttemptId   String      @map("call_attempt_id")
+  eventType       String      @map("event_type") // CALL_INITIATED, ANSWERED, DTMF_RECEIVED, etc.
+  providerEventId String?     @unique @map("provider_event_id") // For idempotency
+  payloadJson     Json?       @map("payload_json")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  callAttempt     CallAttempt @relation(fields: [callAttemptId], references: [id], onDelete: Cascade)
+
+  @@index([callAttemptId])
+  @@index([eventType])
+  @@map("call_events")
+}
+
+model RetryLog {
+  id               String   @id @default(cuid())
+  callJobId        String   @map("call_job_id")
+  attemptNumber    Int      @map("attempt_number")
+  reason           String   // NO_ANSWER, BUSY, TEMPORARY_FAILURE
+  scheduledRetryAt DateTime @map("scheduled_retry_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  callJob          CallJob  @relation(fields: [callJobId], references: [id], onDelete: Cascade)
+
+  @@index([callJobId])
+  @@map("retry_logs")
+}
+
+// ==========================================
+// 6. GOVERNANCE, AUDIT & SYSTEM SETTINGS
+// ==========================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  action     String   // CAMPAIGN_CREATED, CONTACT_IMPORTED, etc.
+  category   String   @default("System")
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  details    String
+  timestamp  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([category])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // SYSTEM_ALERT, CAMPAIGN_COMPLETED, etc.
+  recipient String
+  status    String   @default("UNREAD")
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}

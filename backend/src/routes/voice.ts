@@ -1,0 +1,92 @@
+import { Router, Request, Response } from 'express';
+import { voiceWebhookService, TwilioWebhookPayload } from '../services/voiceWebhookService.js';
+import { twilioService } from '../services/twilio/twilioService.js';
+import { logger } from '../middleware/logger.js';
+
+export const voiceRouter = Router();
+
+/**
+ * Middleware to validate Twilio cryptographic signature.
+ */
+function requireTwilioSignature(req: Request, res: Response, next: () => void) {
+  const signature = req.headers['x-twilio-signature'] as string | undefined;
+  const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+  const params = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
+
+  if (!twilioService.validateWebhookSignature(signature, fullUrl, params)) {
+    logger.warn({ url: fullUrl, ip: req.ip }, 'Rejected invalid Twilio webhook signature');
+    res.status(403).type('text/plain').send('Forbidden: Invalid Twilio Signature');
+    return;
+  }
+  next();
+}
+
+/**
+ * Serves initial TwiML when outbound call connects.
+ */
+voiceRouter.all('/twiml', requireTwilioSignature, async (req: Request, res: Response) => {
+  const callAttemptId = (req.query.callAttemptId || req.body.callAttemptId) as string;
+  const questionId = (req.query.questionId || req.body.questionId) as string | undefined;
+  const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
+
+  try {
+    if (!callAttemptId) {
+      res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Invalid call session parameter.</Say><Hangup/></Response>');
+      return;
+    }
+
+    const xml = await voiceWebhookService.handleCallConnect(callAttemptId, questionId, payload);
+    res.type('text/xml').send(xml);
+  } catch (error) {
+    logger.error({ error: (error as Error).message, callAttemptId }, 'Error rendering initial TwiML');
+    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>An internal error occurred. Goodbye.</Say><Hangup/></Response>');
+  }
+});
+
+/**
+ * Handles gathered DTMF digits from Twilio IVR.
+ */
+voiceRouter.post('/gather', requireTwilioSignature, async (req: Request, res: Response) => {
+  const callAttemptId = (req.query.callAttemptId || req.body.callAttemptId) as string;
+  const questionId = (req.query.questionId || req.body.questionId) as string;
+  const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
+
+  try {
+    if (!callAttemptId || !questionId) {
+      res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Missing session or question parameters.</Say><Hangup/></Response>');
+      return;
+    }
+
+    const xml = await voiceWebhookService.handleGather(callAttemptId, questionId, payload);
+    res.type('text/xml').send(xml);
+  } catch (error) {
+    logger.error({ error: (error as Error).message, callAttemptId, questionId }, 'Error handling IVR gather');
+    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Error processing your response. Goodbye.</Say><Hangup/></Response>');
+  }
+});
+
+/**
+ * Handles Twilio status callbacks (initiated, ringing, answered, completed, busy, etc.).
+ */
+voiceRouter.post('/status', requireTwilioSignature, async (req: Request, res: Response) => {
+  const callAttemptId = (req.query.callAttemptId || req.body.callAttemptId) as string;
+  const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
+
+  try {
+    if (callAttemptId) {
+      await voiceWebhookService.handleStatusCallback(callAttemptId, payload);
+    }
+    res.status(200).type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response/>');
+  } catch (error) {
+    logger.error({ error: (error as Error).message, callAttemptId }, 'Error handling Twilio status callback');
+    res.status(200).type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response/>');
+  }
+});
+
+/**
+ * Fallback error webhook.
+ */
+voiceRouter.post('/fallback', (req: Request, res: Response) => {
+  logger.warn({ body: req.body }, 'Twilio fallback webhook invoked');
+  res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>We are experiencing technical difficulties. Goodbye.</Say><Hangup/></Response>');
+});

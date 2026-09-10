@@ -1,0 +1,6 @@
+{
+  "name": "Auckland Accounting - Outbound Calling & IVR Platform",
+  "description": "Automated outbound calling, dynamic IVR questionnaire builder, contact management, campaign scheduler, and interactive call simulator for Auckland Accounting Services Ltd.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
