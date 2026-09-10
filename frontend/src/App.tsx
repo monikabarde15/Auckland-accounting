@@ -387,6 +387,7 @@ function AculaWorkspace() {
                 onToggleStatus={handleToggleCampaignStatus}
                 onLaunchSimulator={handleLaunchSimulator}
                 onRunBatchSimulation={handleRunBatchSimulation}
+                onSaveCallLog={handleSaveCallLog}
                 isSimulatingBatch={isSimulatingBatch}
                 activeBatchCampaignId={activeBatchCampaignId}
               />

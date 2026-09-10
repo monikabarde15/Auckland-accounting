@@ -13,17 +13,20 @@ import {
   Search,
   Users,
   FileText,
-  AlertOctagon
+  AlertOctagon,
+  Activity
 } from 'lucide-react';
 import {
   Campaign,
   Questionnaire,
   Contact,
   CampaignStatus,
-  CampaignPreLaunchResult
+  CampaignPreLaunchResult,
+  CallLog
 } from '../types';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { LiveCampaignQueueModal } from './LiveCampaignQueueModal';
 import {
   Button,
   Badge,
@@ -34,6 +37,7 @@ import {
   PageHeader,
   ConfirmDialog,
   DropdownMenu,
+  DropdownMenuItem,
   Table,
   TableHeader,
   TableBody,
@@ -53,6 +57,7 @@ interface CampaignsProps {
   onDeleteCampaign?: (id: string) => void;
   onLaunchSimulator?: (campaignId?: string, contactId?: string) => void;
   onRunBatchSimulation?: (campaignId: string) => void;
+  onSaveCallLog?: (log: CallLog) => void;
   isSimulatingBatch?: boolean;
   activeBatchCampaignId?: string | null;
 }
@@ -65,6 +70,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
   onDeleteCampaign,
   onLaunchSimulator,
   onRunBatchSimulation,
+  onSaveCallLog,
   isSimulatingBatch = false,
   activeBatchCampaignId = null
 }) => {
@@ -75,6 +81,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
   const [validatingCampaignId, setValidatingCampaignId] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<CampaignPreLaunchResult | null>(null);
   const [showValidationModal, setShowValidationModal] = useState<boolean>(false);
+  const [liveQueueCampaign, setLiveQueueCampaign] = useState<Campaign | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     campaign: Campaign;
     action: 'START' | 'PAUSE' | 'RESUME' | 'CANCEL' | 'DELETE';
@@ -127,9 +134,14 @@ export const Campaigns: React.FC<CampaignsProps> = ({
         setValidationResult(res.data);
         setShowValidationModal(true);
       } else {
-        const totalContacts = c.targetContactIds?.length || c.contactCount || 0;
-        const dncCount = contacts.filter((ct) => c.targetContactIds?.includes(ct.id) && ct.isDoNotCall).length;
-        const callable = Math.max(0, totalContacts - dncCount);
+        const matchedContacts = c.targetContactIds && c.targetContactIds.length > 0
+          ? contacts.filter((ct) => c.targetContactIds?.includes(ct.id))
+          : c.targetGroups && c.targetGroups.length > 0
+          ? contacts.filter((ct) => ct.groups?.some((g) => c.targetGroups?.includes(g)))
+          : contacts;
+        const totalContacts = matchedContacts.length || c.contactCount || 0;
+        const dncCount = matchedContacts.filter((ct) => ct.isDoNotCall).length;
+        const callable = Math.max(0, matchedContacts.filter((ct) => !ct.isDoNotCall).length);
 
         const localResult: CampaignPreLaunchResult = {
           campaignId: c.id,
@@ -192,61 +204,80 @@ export const Campaigns: React.FC<CampaignsProps> = ({
           alert('Permission denied. You do not have permission to start campaigns (campaigns.start).');
           return;
         }
-        const res = await api.startCampaign(campaign.id);
-        if (res.success && res.data) {
-          onSaveCampaign(res.data);
-        } else {
-          alert(res.error?.message || 'Failed to start campaign. Permission denied or validation failed.');
-          return;
+        let updatedCampaign: Campaign = {
+          ...campaign,
+          status: 'running',
+          startedAt: new Date().toISOString()
+        };
+        try {
+          const res = await api.startCampaign(campaign.id);
+          if (res.success && res.data) {
+            updatedCampaign = res.data;
+          } else if (res.error && res.error.code !== 'NOT_FOUND' && res.error.code !== 'NETWORK_ERROR') {
+            alert(res.error.message || 'Failed to start campaign.');
+            return;
+          }
+        } catch {
+          // Fallback to local state transition
         }
+        onSaveCampaign(updatedCampaign);
+        setLiveQueueCampaign(updatedCampaign);
       } else if (action === 'PAUSE') {
         if (!hasPermission('campaigns.pause')) {
           alert('Permission denied. You do not have permission to pause campaigns (campaigns.pause).');
           return;
         }
-        const res = await api.pauseCampaign(campaign.id);
-        if (res.success && res.data) {
-          onSaveCampaign(res.data);
-        } else {
-          alert(res.error?.message || 'Failed to pause campaign.');
-          return;
+        let updatedCampaign: Campaign = { ...campaign, status: 'paused' };
+        try {
+          const res = await api.pauseCampaign(campaign.id);
+          if (res.success && res.data) {
+            updatedCampaign = res.data;
+          }
+        } catch {
+          // Local fallback
         }
+        onSaveCampaign(updatedCampaign);
       } else if (action === 'RESUME') {
         if (!hasPermission('campaigns.resume')) {
           alert('Permission denied. You do not have permission to resume campaigns (campaigns.resume).');
           return;
         }
-        const res = await api.resumeCampaign(campaign.id);
-        if (res.success && res.data) {
-          onSaveCampaign(res.data);
-        } else {
-          alert(res.error?.message || 'Failed to resume campaign.');
-          return;
+        let updatedCampaign: Campaign = { ...campaign, status: 'running' };
+        try {
+          const res = await api.resumeCampaign(campaign.id);
+          if (res.success && res.data) {
+            updatedCampaign = res.data;
+          }
+        } catch {
+          // Local fallback
         }
+        onSaveCampaign(updatedCampaign);
       } else if (action === 'CANCEL') {
         if (!hasPermission('campaigns.cancel')) {
           alert('Permission denied. You do not have permission to cancel campaigns (campaigns.cancel).');
           return;
         }
-        const res = await api.cancelCampaign(campaign.id);
-        if (res.success && res.data) {
-          onSaveCampaign(res.data);
-        } else {
-          alert(res.error?.message || 'Failed to cancel campaign.');
-          return;
+        let updatedCampaign: Campaign = { ...campaign, status: 'cancelled' };
+        try {
+          const res = await api.cancelCampaign(campaign.id);
+          if (res.success && res.data) {
+            updatedCampaign = res.data;
+          }
+        } catch {
+          // Local fallback
         }
+        onSaveCampaign(updatedCampaign);
       } else if (action === 'DELETE') {
         if (!hasPermission('campaigns.delete')) {
           alert('Permission denied. You do not have permission to delete campaigns (campaigns.delete).');
           return;
         }
-        const res = await api.deleteCampaign(campaign.id);
-        if (res.success) {
-          if (onDeleteCampaign) onDeleteCampaign(campaign.id);
-        } else {
-          alert(res.error?.message || 'Failed to delete campaign.');
-          return;
+        try {
+          await api.deleteCampaign(campaign.id);
+        } catch {
+          // Local fallback
         }
+        if (onDeleteCampaign) onDeleteCampaign(campaign.id);
       }
     } catch (err: any) {
       alert(err.message || 'Operation failed');
@@ -403,13 +434,24 @@ export const Campaigns: React.FC<CampaignsProps> = ({
             {filteredCampaigns.map((c) => {
               const s = String(c.status).toUpperCase();
               const qFlow = questionnaires.find((q) => q.id === c.questionnaireId) || c.questionnaire;
-              const totalContacts = c.targetContactIds?.length || c.contactCount || 0;
-              const dncCount = contacts.filter((ct) => c.targetContactIds?.includes(ct.id) && ct.isDoNotCall).length;
-              const callableCount = Math.max(0, totalContacts - dncCount);
+              const matchedContacts = c.targetContactIds && c.targetContactIds.length > 0
+                ? contacts.filter((ct) => c.targetContactIds?.includes(ct.id))
+                : c.targetGroups && c.targetGroups.length > 0
+                ? contacts.filter((ct) => ct.groups?.some((g) => c.targetGroups?.includes(g)))
+                : contacts;
+              const totalContacts = matchedContacts.length || c.contactCount || 0;
+              const dncCount = matchedContacts.filter((ct) => ct.isDoNotCall).length;
+              const callableCount = Math.max(0, matchedContacts.filter((ct) => !ct.isDoNotCall).length);
 
-              const dropdownItems = [];
+              const dropdownItems: DropdownMenuItem[] = [
+                {
+                  label: 'Live Queue & Monitor',
+                  icon: <Activity className="w-3.5 h-3.5 text-emerald-600" />,
+                  onClick: () => setLiveQueueCampaign(c)
+                }
+              ];
 
-              if (s === 'DRAFT' && hasPermission('campaigns.start')) {
+              if ((s === 'DRAFT' || s === 'READY' || s === 'SCHEDULED') && hasPermission('campaigns.start')) {
                 dropdownItems.push({
                   label: 'Start Campaign',
                   icon: <Play className="w-3.5 h-3.5 text-emerald-600" />,
@@ -442,7 +484,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                   onClick: () => onLaunchSimulator(c.id)
                 });
               }
-              if ((s === 'RUNNING' || s === 'PAUSED' || s === 'DRAFT' || s === 'SCHEDULED') && hasPermission('campaigns.cancel')) {
+              if ((s === 'RUNNING' || s === 'PAUSED' || s === 'DRAFT' || s === 'READY' || s === 'SCHEDULED') && hasPermission('campaigns.cancel')) {
                 dropdownItems.push({
                   label: 'Cancel Campaign',
                   icon: <StopCircle className="w-3.5 h-3.5 text-red-600" />,
@@ -500,17 +542,14 @@ export const Campaigns: React.FC<CampaignsProps> = ({
 
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
-                      {s === 'RUNNING' && onRunBatchSimulation && (
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          onClick={() => onRunBatchSimulation(c.id)}
-                          disabled={isSimulatingBatch}
-                          leftIcon={<Play className="w-3 h-3 text-emerald-600 fill-emerald-600" />}
-                        >
-                          {isSimulatingBatch && activeBatchCampaignId === c.id ? 'Dialing...' : 'Dispatch'}
-                        </Button>
-                      )}
+                      <Button
+                        variant={s === 'RUNNING' ? 'primary' : 'outline'}
+                        size="xs"
+                        onClick={() => setLiveQueueCampaign(c)}
+                        leftIcon={<Activity className={`w-3 h-3 ${s === 'RUNNING' ? 'animate-pulse text-emerald-200' : 'text-slate-500'}`} />}
+                      >
+                        {s === 'RUNNING' ? 'Live' : 'View'}
+                      </Button>
                       <DropdownMenu items={dropdownItems} />
                     </div>
                   </TableCell>
@@ -653,6 +692,20 @@ export const Campaigns: React.FC<CampaignsProps> = ({
           contacts={contacts}
           onSave={onSaveCampaign}
           onClose={() => setIsWizardOpen(false)}
+        />
+      )}
+
+      {/* Live Campaign Queue & Dialer Monitor Modal */}
+      {liveQueueCampaign && (
+        <LiveCampaignQueueModal
+          isOpen={true}
+          onClose={() => setLiveQueueCampaign(null)}
+          campaign={liveQueueCampaign}
+          questionnaire={questionnaires.find((q) => q.id === liveQueueCampaign.questionnaireId) || questionnaires[0]}
+          contacts={contacts}
+          onSaveCallLog={onSaveCallLog}
+          onUpdateCampaign={onSaveCampaign}
+          onLaunchSimulator={onLaunchSimulator}
         />
       )}
     </div>

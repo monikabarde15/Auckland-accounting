@@ -47,7 +47,15 @@ export interface Questionnaire {
   updatedAt: string;
 }
 
-export type ConsentStatus = 'GRANTED' | 'REVOKED' | 'PENDING' | 'EXPIRED';
+export type ConsentStatus =
+  | 'GRANTED'
+  | 'REVOKED'
+  | 'PENDING'
+  | 'EXPIRED'
+  | 'CONSENT_GRANTED'
+  | 'CONSENT_REVOKED'
+  | 'CONSENT_PENDING'
+  | 'CONSENT_EXPIRED';
 
 export interface Contact {
   id: string;
@@ -55,18 +63,19 @@ export interface Contact {
   companyName: string;
   phoneNumber: string; // E.g. "+64 21 892 4101"
   email: string;
-  entityType: 'Individual' | 'Company' | 'Trust' | 'Partnership' | 'INDIVIDUAL' | 'COMPANY' | 'TRUST' | 'PARTNERSHIP';
+  entityType?: 'Individual' | 'Company' | 'Trust' | 'Partnership' | 'Sole Proprietor' | 'INDIVIDUAL' | 'COMPANY' | 'TRUST' | 'PARTNERSHIP';
   irdNumber?: string;
-  assignedAccountant: string;
+  assignedAccountant?: string;
   outstandingBalance?: number;
   dueDate?: string;
-  tags: string[];
+  tags?: string[];
   isDoNotCall: boolean;
   callPermission?: boolean;
   consentStatus?: ConsentStatus;
   consentSource?: string;
+  consentGrantedAt?: string;
   consentTimestamp?: string;
-  groups?: Array<{ id: string; name: string }>;
+  groups?: Array<{ id: string; name: string }> | string[];
   notes?: string;
   lastCallDate?: string;
   lastCallStatus?: CallStatus;
@@ -108,45 +117,55 @@ export interface ConsentRecord {
 export interface ParsedCsvRow {
   rowIndex: number;
   raw: Record<string, string>;
-  name: string;
-  companyName: string;
-  phoneNumber: string;
-  normalizedPhone: string;
-  email: string;
-  entityType: string;
-  irdNumber: string;
-  assignedAccountant: string;
-  outstandingBalance: number;
-  dueDate: string | null;
-  tags: string[];
-  isDoNotCall: boolean;
-  status: 'VALID' | 'INVALID_DATA' | 'DUPLICATE_IN_FILE' | 'DUPLICATE_IN_DB' | 'DNC_BLOCKED';
-  errors: string[];
+  normalized: {
+    name: string;
+    companyName?: string;
+    phoneNumber: string;
+    email?: string;
+    entityType?: string;
+    assignedAccountant?: string;
+    outstandingBalance?: number;
+    dueDate?: string;
+    tags?: string[];
+  };
+  validationErrors: string[];
+  validationWarnings: string[];
+  isDuplicate: boolean;
+  isDncMatched: boolean;
+  existingContactId?: string;
+  status: 'valid' | 'warning' | 'invalid';
 }
 
 export interface CsvPreviewResult {
-  totalRows: number;
-  validCount: number;
-  invalidCount: number;
-  duplicateInFileCount: number;
-  duplicateInDbCount: number;
-  dncBlockedCount: number;
-  previewRows: ParsedCsvRow[];
-  parsedRows: ParsedCsvRow[];
+  totalRows?: number;
+  validRows?: number;
+  warningRows?: number;
+  invalidRows?: number;
+  duplicateRows?: number;
+  dncSuppressedRows?: number;
+  columnsDetected?: string[];
+  sampleRows?: ParsedCsvRow[];
+  validCount?: number;
+  invalidCount?: number;
+  duplicateInFileCount?: number;
+  duplicateInDbCount?: number;
+  dncBlockedCount?: number;
+  previewRows?: ParsedCsvRow[];
+  parsedRows?: ParsedCsvRow[];
 }
 
 export interface ImportSummaryResult {
-  totalRows: number;
   importedCount: number;
   updatedCount: number;
   skippedCount: number;
-  dncBlockedCount: number;
-  errorsCount: number;
-  groupId?: string;
+  failedCount: number;
+  createdGroupId?: string;
 }
 
 export type CallStatus =
+  | 'pending'
   | 'queued'
+  | 'initiating'
   | 'ringing'
   | 'in_progress'
   | 'completed'
@@ -163,13 +182,15 @@ export type CampaignStatus =
   | 'completed'
   | 'cancelled'
   | 'failed'
+  | 'ready'
   | 'DRAFT'
   | 'SCHEDULED'
   | 'RUNNING'
   | 'PAUSED'
   | 'COMPLETED'
   | 'CANCELLED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'READY';
 
 export interface RetryPolicy {
   maxAttempts: number; // e.g. 3
@@ -180,10 +201,14 @@ export interface RetryPolicy {
 }
 
 export interface CallingSchedule {
-  startHour: string; // "09:00"
-  endHour: string; // "17:00"
-  daysOfWeek: number[]; // 1 = Mon, 5 = Fri
-  timezone: string; // "Pacific/Auckland"
+  startHour?: string; // "09:00"
+  endHour?: string; // "17:00"
+  startDate?: string;
+  startTime?: string;
+  endTime?: string;
+  callWindowDays?: string[];
+  daysOfWeek?: number[] | string[]; // 1 = Mon, 5 = Fri
+  timezone?: string; // "Pacific/Auckland"
 }
 
 export interface FlowValidationError {
@@ -214,7 +239,7 @@ export interface FlowValidationResult {
 
 export interface PreLaunchValidationCheck {
   id: string;
-  category: 'CAMPAIGN' | 'CONTACTS' | 'QUESTION_FLOW' | 'COMPLIANCE';
+  category: 'CAMPAIGN' | 'CONTACTS' | 'QUESTION_FLOW' | 'COMPLIANCE' | 'CONFIG';
   name: string;
   status: 'PASS' | 'WARN' | 'FAIL';
   message: string;
@@ -224,7 +249,8 @@ export interface PreLaunchValidationCheck {
 export interface CampaignPreLaunchResult {
   isLaunchReady: boolean;
   campaignId: string;
-  campaignName: string;
+  campaignName?: string;
+  timestamp?: string;
   checks: PreLaunchValidationCheck[];
   summary: {
     totalContacts: number;
@@ -260,7 +286,7 @@ export interface Campaign {
   } | null;
   status: CampaignStatus;
   callerId: string; // e.g. "+6498370000"
-  callerName: string; // "Auckland Accounting Services"
+  callerName?: string; // "Auckland Accounting Services"
   callingStartTime?: string;
   callingEndTime?: string;
   daysOfWeek?: number[];
@@ -272,12 +298,14 @@ export interface Campaign {
   retryEnabled?: boolean;
   maxRetries?: number;
   retryIntervalMinutes?: number;
+  retryDelayMinutes?: number;
   retryOnBusy?: boolean;
   retryOnNoAnswer?: boolean;
   retryOnFailed?: boolean;
   startDate?: string | null;
   endDate?: string | null;
   targetContactIds?: string[];
+  targetGroups?: string[];
   schedule?: CallingSchedule;
   retryPolicy?: RetryPolicy;
   concurrencyLimit?: number; // 1-10 simultaneous calls
@@ -295,14 +323,14 @@ export interface Campaign {
   startedAt?: string;
   completedAt?: string;
   stats?: {
-    totalContacts: number;
-    completedCalls: number;
-    answeredCalls: number;
-    busyCalls: number;
-    noAnswerCalls: number;
-    failedCalls: number;
-    transferredCalls: number;
-    avgDurationSeconds: number;
+    totalContacts?: number;
+    completedCalls?: number;
+    answeredCalls?: number;
+    busyCalls?: number;
+    noAnswerCalls?: number;
+    failedCalls?: number;
+    transferredCalls?: number;
+    avgDurationSeconds?: number;
   };
 }
 
@@ -502,6 +530,8 @@ export interface CampaignReportData {
       optionLabel: string;
       count: number;
       percentage: number;
+    }>;
+  }>;
 }
 
 export interface FormattedPermission {

@@ -406,6 +406,44 @@ export const INITIAL_CONTACTS: Contact[] = [
     assignedAccountant: 'David Chen (CA)',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'cnt_nz_5',
+    name: 'James Patel',
+    companyName: 'Britomart Advisory Partners',
+    phoneNumber: '+64 21 345 8899',
+    email: 'james@britomartadvisory.co.nz',
+    groups: ['Corporate Clients', 'GST Tax Filings'],
+    isDoNotCall: false,
+    consentStatus: 'CONSENT_GRANTED',
+    consentGrantedAt: new Date(Date.now() - 45 * 24 * 3600 * 1000).toISOString(),
+    consentSource: 'Direct Client Opt-in',
+    entityType: 'Company',
+    irdNumber: '321-654-987',
+    outstandingBalance: 2150.00,
+    dueDate: 'the 20th',
+    assignedAccountant: 'David Chen (CA)',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'cnt_nz_6',
+    name: 'Chloe Tremaine',
+    companyName: 'Newmarket Design Studio',
+    phoneNumber: '+64 22 712 3456',
+    email: 'chloe@newmarketdesign.co.nz',
+    groups: ['SME Clients', 'Customer Survey'],
+    isDoNotCall: false,
+    consentStatus: 'CONSENT_GRANTED',
+    consentGrantedAt: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString(),
+    consentSource: 'Signed Engagement Letter',
+    entityType: 'Sole Proprietor',
+    irdNumber: '654-987-321',
+    outstandingBalance: 420.00,
+    dueDate: 'the 28th',
+    assignedAccountant: 'Emma Wilson (CA)',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   }
 ];
 
@@ -413,9 +451,10 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
   {
     id: 'cmp_nz_gst_q1',
     name: 'Q1 GST Filing Authorizations 2026',
-    status: 'ready',
+    status: 'draft',
     questionnaireId: 'qnr_yes_no_gst',
     targetGroups: ['GST Tax Filings'],
+    targetContactIds: ['cnt_nz_1', 'cnt_nz_5'],
     callerId: '+64 9 837 0000',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
@@ -428,7 +467,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     maxRetries: 2,
     retryDelayMinutes: 30,
     stats: {
-      totalContacts: 4,
+      totalContacts: 2,
       completedCalls: 0,
       answeredCalls: 0,
       transferredCalls: 0,
@@ -441,9 +480,10 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
   {
     id: 'cmp_nz_fee_reminders',
     name: 'Outstanding Fee & Balance Notifications',
-    status: 'ready',
+    status: 'draft',
     questionnaireId: 'qnr_multiple_choice_fee',
     targetGroups: ['Fee Reminders'],
+    targetContactIds: ['cnt_nz_2', 'cnt_nz_6'],
     callerId: '+64 9 837 0000',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
@@ -456,7 +496,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     maxRetries: 2,
     retryDelayMinutes: 60,
     stats: {
-      totalContacts: 3,
+      totalContacts: 2,
       completedCalls: 0,
       answeredCalls: 0,
       transferredCalls: 0,
@@ -469,9 +509,10 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
   {
     id: 'cmp_nz_ird_verification',
     name: 'Inland Revenue ID & Security Verification',
-    status: 'ready',
+    status: 'draft',
     questionnaireId: 'qnr_numeric_ird_verify',
     targetGroups: ['Corporate Clients'],
+    targetContactIds: ['cnt_nz_1', 'cnt_nz_4', 'cnt_nz_5'],
     callerId: '+64 9 837 0000',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
@@ -483,34 +524,6 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     concurrencyLimit: 5,
     maxRetries: 2,
     retryDelayMinutes: 30,
-    stats: {
-      totalContacts: 4,
-      completedCalls: 0,
-      answeredCalls: 0,
-      transferredCalls: 0,
-      failedCalls: 0,
-      avgDurationSeconds: 0
-    },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'cmp_nz_csat_survey',
-    name: 'Annual Practice CSAT & Quality Survey',
-    status: 'ready',
-    questionnaireId: 'qnr_rating_csat_survey',
-    targetGroups: ['Customer Survey'],
-    callerId: '+64 9 837 0000',
-    schedule: {
-      startDate: new Date().toISOString().split('T')[0],
-      startTime: '10:00',
-      endTime: '16:00',
-      timezone: 'Pacific/Auckland',
-      callWindowDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-    },
-    concurrencyLimit: 4,
-    maxRetries: 1,
-    retryDelayMinutes: 120,
     stats: {
       totalContacts: 3,
       completedCalls: 0,
@@ -523,11 +536,41 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     updatedAt: new Date().toISOString()
   },
   {
+    id: 'cmp_nz_csat_survey',
+    name: 'Annual Practice CSAT & Quality Survey',
+    status: 'draft',
+    questionnaireId: 'qnr_rating_csat_survey',
+    targetGroups: ['Customer Survey'],
+    targetContactIds: ['cnt_nz_3', 'cnt_nz_6'],
+    callerId: '+64 9 837 0000',
+    schedule: {
+      startDate: new Date().toISOString().split('T')[0],
+      startTime: '10:00',
+      endTime: '16:00',
+      timezone: 'Pacific/Auckland',
+      callWindowDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    },
+    concurrencyLimit: 4,
+    maxRetries: 1,
+    retryDelayMinutes: 120,
+    stats: {
+      totalContacts: 2,
+      completedCalls: 0,
+      answeredCalls: 0,
+      transferredCalls: 0,
+      failedCalls: 0,
+      avgDurationSeconds: 0
+    },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
     id: 'cmp_nz_master_flow',
     name: 'End-to-End Master Flow (All Input Types)',
-    status: 'ready',
+    status: 'draft',
     questionnaireId: 'qnr_master_all_input_types',
     targetGroups: ['Corporate Clients'],
+    targetContactIds: ['cnt_nz_1', 'cnt_nz_2', 'cnt_nz_3', 'cnt_nz_4', 'cnt_nz_5', 'cnt_nz_6'],
     callerId: '+64 9 837 0000',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
@@ -540,7 +583,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     maxRetries: 2,
     retryDelayMinutes: 30,
     stats: {
-      totalContacts: 4,
+      totalContacts: 6,
       completedCalls: 0,
       answeredCalls: 0,
       transferredCalls: 0,
@@ -551,6 +594,8 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     updatedAt: new Date().toISOString()
   }
 ];
+
+
 
 export const INITIAL_CALL_LOGS: CallLog[] = [];
 

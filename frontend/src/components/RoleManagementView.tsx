@@ -411,7 +411,7 @@ export const RoleManagementView: React.FC = () => {
           </div>
         </div>
 
-        {Object.entries(groupedPermissions).map(([category, perms]) => {
+        {(Object.entries(groupedPermissions) as [string, FormattedPermission[]][]).map(([category, perms]) => {
           const allCategoryKeys = perms.map((p) => p.key);
           const categorySelectedCount = allCategoryKeys.filter((k) => selectedPermissions.has(k)).length;
           const isAllCategorySelected = categorySelectedCount === perms.length;
