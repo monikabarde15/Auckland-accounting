@@ -21,7 +21,8 @@ export function createApp(): Express {
   const app = express();
 
   // 1. Security Headers
-  app.use(helmet());
+  const helmetFn: any = typeof helmet === 'function' ? helmet : (helmet as any).default || helmet;
+  app.use(helmetFn());
 
   // 2. CORS setup
   app.use(cors({
