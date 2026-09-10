@@ -12,8 +12,6 @@ import {
   PhoneForwarded,
   MessageSquare,
   Play,
-  FileCode,
-  Copy,
   AlertTriangle,
   CheckCircle2,
   Sparkles,
@@ -28,7 +26,6 @@ import {
 } from 'lucide-react';
 import { Questionnaire, Question, QuestionType, QuestionOption, FlowValidationResult } from '../types';
 import { speechService } from '../utils/speech';
-import { generateTwiML } from '../utils/twiml';
 import { validateFlowGraph } from '../utils/flowValidator';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -404,8 +401,6 @@ export const QuestionnaireBuilder: React.FC<QuestionnaireBuilderProps> = ({
   const [selectedQId, setSelectedQId] = useState<string>(questionnaires[0]?.id || '');
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [isEditingNew, setIsEditingNew] = useState<boolean>(false);
-  const [showTwiMLModal, setShowTwiMLModal] = useState<boolean>(false);
-  const [copiedTwiML, setCopiedTwiML] = useState<boolean>(false);
   const [isNewFlowModalOpen, setIsNewFlowModalOpen] = useState<boolean>(false);
   const [isFlowSettingsOpen, setIsFlowSettingsOpen] = useState<boolean>(false);
   const [flowToDelete, setFlowToDelete] = useState<Questionnaire | null>(null);
@@ -744,14 +739,6 @@ export const QuestionnaireBuilder: React.FC<QuestionnaireBuilderProps> = ({
           <div className="flex items-center gap-2">
             {activeQuestionnaire && (
               <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowTwiMLModal(true)}
-                  leftIcon={<FileCode className="w-3.5 h-3.5 text-slate-500" />}
-                >
-                  TwiML Preview
-                </Button>
                 {canSimulate && onTestFlowInSimulator && (
                   <Button
                     variant="outline"
@@ -1347,34 +1334,7 @@ export const QuestionnaireBuilder: React.FC<QuestionnaireBuilderProps> = ({
         </Modal>
       )}
 
-      {/* Modal: TwiML Preview */}
-      {showTwiMLModal && activeQuestionnaire && (
-        <Modal
-          isOpen={showTwiMLModal}
-          onClose={() => setShowTwiMLModal(false)}
-          size="lg"
-          title="Generated TwiML XML Preview"
-          description="Standard compliance XML generated for Twilio Voice telephony response pipeline."
-          footer={
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                navigator.clipboard.writeText(generateTwiML(activeQuestionnaire.questions[0] || ({} as any)));
-                setCopiedTwiML(true);
-                setTimeout(() => setCopiedTwiML(false), 2000);
-              }}
-              leftIcon={copiedTwiML ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            >
-              {copiedTwiML ? 'Copied XML' : 'Copy TwiML'}
-            </Button>
-          }
-        >
-          <div className="bg-slate-900 text-slate-100 p-3.5 rounded-lg font-mono text-xs overflow-x-auto max-h-80">
-            <pre>{generateTwiML(activeQuestionnaire.questions[0] || ({} as any))}</pre>
-          </div>
-        </Modal>
-      )}
+
 
       {/* Confirm Flow Deletion */}
       {flowToDelete && (
