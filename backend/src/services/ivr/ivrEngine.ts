@@ -131,7 +131,7 @@ export async function renderQuestionTwiml(
 
   // 2. TRANSFER
   if (question.type === QuestionType.TRANSFER) {
-    const transferNumber = question.transferPhoneNumber || '+6498370000';
+    const transferNumber = question.transferPhoneNumber || env.TWILIO_PHONE_NUMBER || '+17372508034';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Aria" language="en-NZ">${escapedPrompt}</Say>
@@ -252,7 +252,7 @@ export async function processGatheredResponse(
   }
 
   if (nextAction === NextAction.TRANSFER) {
-    const transferNumber = question.transferPhoneNumber || '+6498370000';
+    const transferNumber = question.transferPhoneNumber || env.TWILIO_PHONE_NUMBER || '+17372508034';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Aria" language="en-NZ">Transferring you now. Please hold.</Say>

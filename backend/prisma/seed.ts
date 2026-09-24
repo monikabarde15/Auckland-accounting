@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { PrismaClient, CampaignStatus, QuestionType, NextAction, EntityType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
@@ -229,8 +230,8 @@ async function main() {
     },
     {
       key: 'DEFAULT_CALLER_ID',
-      value: '+6498370000',
-      description: 'Auckland Accounting Services Henderson Office Caller ID'
+      value: '+17372508034',
+      description: 'Active Twilio Outbound Calling Phone Number'
     },
     {
       key: 'MAX_CONCURRENT_CALLS_DEFAULT',

@@ -111,30 +111,49 @@ export const ContactManager: React.FC<ContactManagerProps> = ({
   };
 
   const handleSaveContactData = async (contactData: Partial<Contact>, groupIds: string[]) => {
-    if (editingContact) {
-      const updated = { ...editingContact, ...contactData };
-      onSaveContact(updated as Contact);
-    } else {
-      const newContact: Contact = {
-        id: `cnt_${Date.now()}`,
-        name: contactData.name || 'New Client',
-        companyName: contactData.companyName || '',
-        phoneNumber: contactData.phoneNumber || '',
-        email: contactData.email || '',
-        entityType: contactData.entityType || 'COMPANY',
-        irdNumber: contactData.irdNumber || '',
-        assignedAccountant: contactData.assignedAccountant || 'David Chen (CA)',
-        outstandingBalance: contactData.outstandingBalance || 0,
-        dueDate: contactData.dueDate || new Date().toISOString().split('T')[0],
-        tags: contactData.tags || [],
-        callPermission: !contactData.isDoNotCall,
-        isDoNotCall: !!contactData.isDoNotCall,
-        consentStatus: contactData.consentStatus || 'GRANTED',
-        createdAt: new Date().toISOString()
-      };
-      onSaveContact(newContact);
+    try {
+      if (editingContact) {
+        let updated: Contact = { ...editingContact, ...contactData };
+        try {
+          const res = await api.updateContact(editingContact.id, { ...contactData, groupIds });
+          if (res.success && res.data) {
+            updated = res.data;
+          }
+        } catch {
+          // Fallback to local state
+        }
+        onSaveContact(updated);
+      } else {
+        let newContact: Contact = {
+          id: `cnt_${Date.now()}`,
+          name: contactData.name || 'New Client',
+          companyName: contactData.companyName || '',
+          phoneNumber: contactData.phoneNumber || '',
+          email: contactData.email || '',
+          entityType: contactData.entityType || 'COMPANY',
+          irdNumber: contactData.irdNumber || '',
+          assignedAccountant: contactData.assignedAccountant || 'David Chen (CA)',
+          outstandingBalance: contactData.outstandingBalance || 0,
+          dueDate: contactData.dueDate || new Date().toISOString().split('T')[0],
+          tags: contactData.tags || [],
+          callPermission: !contactData.isDoNotCall,
+          isDoNotCall: !!contactData.isDoNotCall,
+          consentStatus: contactData.consentStatus || 'GRANTED',
+          createdAt: new Date().toISOString()
+        };
+        try {
+          const res = await api.createContact({ ...contactData, groupIds });
+          if (res.success && res.data) {
+            newContact = res.data;
+          }
+        } catch {
+          // Fallback to local state
+        }
+        onSaveContact(newContact);
+      }
+    } finally {
+      setIsEditorModalOpen(false);
     }
-    setIsEditorModalOpen(false);
   };
 
   const exportContactsCsv = () => {

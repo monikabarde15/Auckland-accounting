@@ -39,8 +39,8 @@ function renderQuestionTwiML(q: Question, baseUrl: string): string {
   } else if (q.type === 'transfer') {
     block += `  <!-- Transfer: ${escapeXml(q.name)} -->\n`;
     block += `  <Say voice="Polly.Aria-Neural" language="en-NZ">${escapeXml(q.promptText)}</Say>\n`;
-    block += `  <Dial callerId="+6498370000" timeout="25">\n`;
-    block += `    <Number>${q.transferPhoneNumber || '+6498370000'}</Number>\n`;
+    block += `  <Dial callerId="+17372508034" timeout="25">\n`;
+    block += `    <Number>${q.transferPhoneNumber || '+17372508034'}</Number>\n`;
     block += `  </Dial>\n`;
   } else if (q.type === 'numeric') {
     block += `  <!-- Numeric Input: ${escapeXml(q.name)} -->\n`;

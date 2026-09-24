@@ -14,7 +14,10 @@ import {
   Users,
   FileText,
   AlertOctagon,
-  Activity
+  Activity,
+  Edit2,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import {
   Campaign,
@@ -78,6 +81,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
   const [activeTab, setActiveTab] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isWizardOpen, setIsWizardOpen] = useState<boolean>(false);
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [validatingCampaignId, setValidatingCampaignId] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<CampaignPreLaunchResult | null>(null);
   const [showValidationModal, setShowValidationModal] = useState<boolean>(false);
@@ -209,16 +213,47 @@ export const Campaigns: React.FC<CampaignsProps> = ({
           status: 'running',
           startedAt: new Date().toISOString()
         };
+
+        // Resolve callable contacts for this campaign
+        const matchedContacts = campaign.targetContactIds && campaign.targetContactIds.length > 0
+          ? contacts.filter((ct) => campaign.targetContactIds?.includes(ct.id))
+          : campaign.targetGroups && campaign.targetGroups.length > 0
+          ? contacts.filter((ct) => ct.groups?.some((g) => campaign.targetGroups?.includes(typeof g === 'string' ? g : (g as any).name)))
+          : contacts;
+        const callableContactIds = matchedContacts.filter((ct) => !ct.isDoNotCall).map((ct) => ct.id);
+
         try {
-          const res = await api.startCampaign(campaign.id);
+          let res = await api.startCampaign(campaign.id);
+
+          // If campaign does not exist in backend database yet, create/sync it first!
+          if (res.error && (res.error.code === 'NOT_FOUND' || res.error.message?.toLowerCase().includes('not found'))) {
+            const qFlow = questionnaires.find((q) => q.id === campaign.questionnaireId) || questionnaires[0];
+            const createRes = await api.createCampaign({
+              name: campaign.name,
+              description: campaign.description,
+              callerId: campaign.callerId || '+17372508034',
+              callerName: campaign.callerName || 'Auckland Accounting',
+              questionnaireId: qFlow?.id,
+              targetContactIds: callableContactIds.length > 0 ? callableContactIds : undefined
+            });
+
+            if (createRes.success && createRes.data) {
+              res = await api.startCampaign(createRes.data.id);
+              if (res.success && res.data) {
+                updatedCampaign = { ...res.data, id: createRes.data.id };
+              }
+            }
+          }
+
           if (res.success && res.data) {
             updatedCampaign = res.data;
-          } else if (res.error && res.error.code !== 'NOT_FOUND' && res.error.code !== 'NETWORK_ERROR') {
-            alert(res.error.message || 'Failed to start campaign.');
+          } else if (res.error) {
+            alert(`Could not start live campaign: ${res.error.message}`);
             return;
           }
-        } catch {
-          // Fallback to local state transition
+        } catch (err: any) {
+          alert(`Network/telephony error starting campaign: ${err?.message || 'Unknown error'}`);
+          return;
         }
         onSaveCampaign(updatedCampaign);
         setLiveQueueCampaign(updatedCampaign);
@@ -353,7 +388,10 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => setIsWizardOpen(true)}
+                onClick={() => {
+                  setEditingCampaign(null);
+                  setIsWizardOpen(true);
+                }}
                 leftIcon={<Plus className="w-3.5 h-3.5" />}
               >
                 Create Campaign
@@ -363,17 +401,52 @@ export const Campaigns: React.FC<CampaignsProps> = ({
         }
       />
 
-      {/* Metrics Row */}
-      <MetricRow
-        metrics={[
-          { label: 'Total', value: metrics.total },
-          { label: 'Running', value: metrics.running, status: metrics.running > 0 ? 'success' : 'neutral' },
-          { label: 'Scheduled', value: metrics.scheduled },
-          { label: 'Paused', value: metrics.paused, status: metrics.paused > 0 ? 'warning' : 'neutral' },
-          { label: 'Draft', value: metrics.draft },
-          { label: 'Completed', value: metrics.completed }
-        ]}
-      />
+      {/* Streamlined Stats Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
+            {metrics.total}
+          </div>
+          <div>
+            <div className="text-[11px] text-slate-500 font-medium">Total Campaigns</div>
+            <div className="text-xs font-semibold text-slate-900">{metrics.total} campaigns</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm ${
+            metrics.running > 0 ? 'bg-emerald-50 text-emerald-600 ring-2 ring-emerald-500/20' : 'bg-slate-100 text-slate-500'
+          }`}>
+            {metrics.running}
+          </div>
+          <div>
+            <div className="text-[11px] text-slate-500 font-medium">Active Dialing</div>
+            <div className={`text-xs font-semibold ${metrics.running > 0 ? 'text-emerald-700' : 'text-slate-600'}`}>
+              {metrics.running > 0 ? `${metrics.running} running now` : 'Idle / Standby'}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-sm">
+            {metrics.paused + metrics.scheduled}
+          </div>
+          <div>
+            <div className="text-[11px] text-slate-500 font-medium">Paused / Scheduled</div>
+            <div className="text-xs font-semibold text-slate-700">{metrics.paused + metrics.scheduled} campaigns</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm">
+            {contacts.filter(c => !c.isDoNotCall).length}
+          </div>
+          <div>
+            <div className="text-[11px] text-slate-500 font-medium">Callable Contacts</div>
+            <div className="text-xs font-semibold text-slate-900">{contacts.filter(c => !c.isDoNotCall).length} ready</div>
+          </div>
+        </div>
+      </div>
 
       {/* Filter Tabs & Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -419,15 +492,15 @@ export const Campaigns: React.FC<CampaignsProps> = ({
           }
         />
       ) : (
-        <Table>
+        <Table containerClassName="w-full">
           <TableHeader>
             <TableRow>
-              <TableHeaderCell>Campaign</TableHeaderCell>
-              <TableHeaderCell>Questionnaire Flow</TableHeaderCell>
-              <TableHeaderCell>Target Audience</TableHeaderCell>
-              <TableHeaderCell>Window</TableHeaderCell>
-              <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell className="text-right">Actions</TableHeaderCell>
+              <TableHeaderCell className="w-[28%] min-w-[200px]">Campaign</TableHeaderCell>
+              <TableHeaderCell className="w-[18%] min-w-[140px]">Questionnaire Flow</TableHeaderCell>
+              <TableHeaderCell className="w-[14%] min-w-[120px]">Target Audience</TableHeaderCell>
+              <TableHeaderCell className="w-[14%] min-w-[120px]">Window</TableHeaderCell>
+              <TableHeaderCell className="w-[10%] min-w-[90px]">Status</TableHeaderCell>
+              <TableHeaderCell className="w-[16%] min-w-[210px] text-right">Actions</TableHeaderCell>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -472,6 +545,16 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                   onClick: () => setConfirmAction({ campaign: c, action: 'RESUME' })
                 });
               }
+              if (s !== 'RUNNING' && hasPermission('campaigns.edit')) {
+                dropdownItems.push({
+                  label: 'Edit Campaign & Contacts',
+                  icon: <Edit2 className="w-3.5 h-3.5 text-blue-600" />,
+                  onClick: () => {
+                    setEditingCampaign(c);
+                    setIsWizardOpen(true);
+                  }
+                });
+              }
               dropdownItems.push({
                 label: 'Pre-Launch Verification',
                 icon: <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />,
@@ -504,44 +587,119 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               return (
                 <TableRow key={c.id}>
                   <TableCell>
-                    <div className="font-semibold text-slate-900">{c.name}</div>
-                    <div className="text-xs text-slate-500 line-clamp-1">{c.description || 'No description provided'}</div>
+                    <div className="font-semibold text-slate-900 truncate" title={c.name}>{c.name}</div>
+                    <div className="text-xs text-slate-500 truncate" title={c.description || undefined}>{c.description || 'No description provided'}</div>
                     <div className="text-[11px] text-slate-400 font-mono mt-0.5">Caller: {c.callerId}</div>
                   </TableCell>
 
                   <TableCell>
                     {qFlow ? (
-                      <span className="text-xs text-slate-800 font-medium flex items-center gap-1.5">
-                        <FileText className="w-3.5 h-3.5 text-slate-400" />
-                        {qFlow.title}
+                      <span className="text-xs text-slate-800 font-medium flex items-center gap-1.5 min-w-0" title={qFlow.title}>
+                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate">{qFlow.title}</span>
                       </span>
                     ) : (
                       <span className="text-xs text-amber-700 font-medium">No Flow Attached</span>
                     )}
                   </TableCell>
 
-                  <TableCell>
-                    <div className="text-xs text-slate-800 font-medium flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{callableCount} callable</span>
-                      {dncCount > 0 && <span className="text-red-600">({dncCount} DNC)</span>}
-                    </div>
+                  <TableCell className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCampaign(c);
+                        setIsWizardOpen(true);
+                      }}
+                      className="text-left group cursor-pointer hover:opacity-90 transition-opacity"
+                      title="Click to edit campaign contacts"
+                    >
+                      <div className="text-xs text-slate-800 font-medium flex items-center gap-1 group-hover:text-blue-600">
+                        <Users className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 shrink-0" />
+                        <span>{callableCount} callable</span>
+                        {dncCount > 0 && <span className="text-red-600">({dncCount} DNC)</span>}
+                        <Edit2 className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100 ml-0.5 shrink-0" />
+                      </div>
+                    </button>
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     <div className="text-xs text-slate-700 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span>{c.callingStartTime || '09:00'} - {c.callingEndTime || '18:00'}</span>
                     </div>
                     <div className="text-[11px] text-slate-400">Max {c.maxConcurrentCalls || 5} concurrent</div>
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     {getStatusBadge(c.status)}
                   </TableCell>
 
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                  <TableCell className="text-right whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-1.5 flex-nowrap">
+                      {(s === 'DRAFT' || s === 'READY' || s === 'SCHEDULED') && (
+                        <Button
+                          variant="primary"
+                          size="xs"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
+                          onClick={() => setConfirmAction({ campaign: c, action: 'START' })}
+                          leftIcon={<Play className="w-3 h-3 fill-current" />}
+                          disabled={!hasPermission('campaigns.start')}
+                          title="Start Outbound Campaign"
+                        >
+                          Start
+                        </Button>
+                      )}
+                      {s === 'RUNNING' && (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="border-amber-500 text-amber-700 hover:bg-amber-50 font-medium whitespace-nowrap"
+                          onClick={() => setConfirmAction({ campaign: c, action: 'PAUSE' })}
+                          leftIcon={<Pause className="w-3 h-3" />}
+                          disabled={!hasPermission('campaigns.pause')}
+                          title="Pause Campaign Dialing"
+                        >
+                          Pause
+                        </Button>
+                      )}
+                      {s === 'PAUSED' && (
+                        <Button
+                          variant="primary"
+                          size="xs"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
+                          onClick={() => setConfirmAction({ campaign: c, action: 'RESUME' })}
+                          leftIcon={<Play className="w-3 h-3 fill-current" />}
+                          disabled={!hasPermission('campaigns.resume')}
+                          title="Resume Campaign Dialing"
+                        >
+                          Resume
+                        </Button>
+                      )}
+                      {(s === 'COMPLETED' || s === 'CANCELLED' || s === 'FAILED') && (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="text-slate-600 hover:text-slate-900 border-slate-300 font-medium whitespace-nowrap"
+                          onClick={() => setConfirmAction({ campaign: c, action: 'START' })}
+                          leftIcon={<Play className="w-3 h-3" />}
+                          disabled={!hasPermission('campaigns.start')}
+                          title="Restart Campaign"
+                        >
+                          Start
+                        </Button>
+                      )}
+                      {onLaunchSimulator && hasPermission('calls.execute') && (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="text-slate-700 border-slate-300 hover:bg-slate-50 font-medium whitespace-nowrap"
+                          onClick={() => onLaunchSimulator(c.id)}
+                          leftIcon={<Phone className="w-3 h-3 text-slate-500" />}
+                          title="Test IVR Voice Flow in Simulator"
+                        >
+                          Simulator
+                        </Button>
+                      )}
                       <Button
                         variant={s === 'RUNNING' ? 'primary' : 'outline'}
                         size="xs"
@@ -656,11 +814,21 @@ export const Campaigns: React.FC<CampaignsProps> = ({
           onClose={() => setConfirmAction(null)}
           onConfirm={handleExecuteStateAction}
           title={`Confirm Campaign ${confirmAction.action}`}
+          confirmLabel={
+            confirmAction.action === 'START'
+              ? 'Start Outbound Dialing'
+              : confirmAction.action === 'PAUSE'
+              ? 'Pause Calling'
+              : confirmAction.action === 'RESUME'
+              ? 'Resume Calling'
+              : undefined
+          }
           variant={confirmAction.action === 'CANCEL' || confirmAction.action === 'DELETE' ? 'danger' : 'primary'}
           message={
             <span>
               Are you sure you want to <strong>{confirmAction.action.toLowerCase()}</strong> campaign "
               {confirmAction.campaign.name}"?
+              {confirmAction.action === 'START' && ' This will initiate automated outbound calling to the target audience.'}
               {confirmAction.action === 'CANCEL' && ' Cancelled campaigns cannot be restarted.'}
               {confirmAction.action === 'DELETE' && ' All campaign configuration and records will be permanently removed.'}
             </span>
@@ -685,13 +853,20 @@ export const Campaigns: React.FC<CampaignsProps> = ({
         />
       )}
 
-      {/* Campaign Creation Wizard */}
+      {/* Campaign Creation / Edit Wizard */}
       {isWizardOpen && (
         <CampaignWizardModal
           questionnaires={questionnaires}
           contacts={contacts}
-          onSave={onSaveCampaign}
-          onClose={() => setIsWizardOpen(false)}
+          campaignToEdit={editingCampaign}
+          onSave={(c) => {
+            onSaveCampaign(c);
+            setEditingCampaign(null);
+          }}
+          onClose={() => {
+            setIsWizardOpen(false);
+            setEditingCampaign(null);
+          }}
         />
       )}
 
@@ -713,11 +888,12 @@ export const Campaigns: React.FC<CampaignsProps> = ({
 };
 
 // ==========================================
-// Campaign Creation Wizard Modal Subcomponent
+// Campaign Creation & Edit Wizard Modal Subcomponent
 // ==========================================
 interface CampaignWizardModalProps {
   questionnaires: Questionnaire[];
   contacts: Contact[];
+  campaignToEdit?: Campaign | null;
   onSave: (c: Campaign) => void;
   onClose: () => void;
 }
@@ -725,33 +901,63 @@ interface CampaignWizardModalProps {
 const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
   questionnaires,
   contacts,
+  campaignToEdit,
   onSave,
   onClose
 }) => {
-  const [step, setStep] = useState<number>(1);
-  const [formData, setFormData] = useState<Partial<Campaign>>({
-    name: '',
-    description: '',
-    callerId: '+6498370000',
-    callerName: 'Auckland Accounting Services',
-    questionnaireId: questionnaires[0]?.id || '',
-    callingStartTime: '09:00',
-    callingEndTime: '18:00',
-    daysOfWeek: [1, 2, 3, 4, 5],
-    timezone: 'Pacific/Auckland',
-    maxConcurrentCalls: 5,
-    dailyCallLimit: 100,
-    maxCalls: 500,
-    maxCost: 250.0,
-    retryEnabled: true,
-    maxRetries: 3,
-    retryIntervalMinutes: 60,
-    status: 'draft'
+  const isEditing = Boolean(campaignToEdit);
+  const [step, setStep] = useState<number>(isEditing ? 3 : 1);
+  const [contactSearchQuery, setContactSearchQuery] = useState<string>('');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+
+  const [formData, setFormData] = useState<Partial<Campaign>>(() => {
+    if (campaignToEdit) {
+      return {
+        ...campaignToEdit,
+        questionnaireId: campaignToEdit.questionnaireId || questionnaires[0]?.id || ''
+      };
+    }
+    return {
+      name: '',
+      description: '',
+      callerId: '+17372508034',
+      callerName: 'Auckland Accounting Services',
+      questionnaireId: questionnaires[0]?.id || '',
+      callingStartTime: '09:00',
+      callingEndTime: '18:00',
+      daysOfWeek: [1, 2, 3, 4, 5],
+      timezone: 'Pacific/Auckland',
+      maxConcurrentCalls: 5,
+      dailyCallLimit: 100,
+      maxCalls: 500,
+      maxCost: 250.0,
+      retryEnabled: true,
+      maxRetries: 3,
+      retryIntervalMinutes: 60,
+      status: 'draft'
+    };
   });
 
-  const [selectedContactIds, setSelectedContactIds] = useState<string[]>(
-    contacts.filter((c) => !c.isDoNotCall).map((c) => c.id)
-  );
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>(() => {
+    if (campaignToEdit?.targetContactIds && campaignToEdit.targetContactIds.length > 0) {
+      return campaignToEdit.targetContactIds;
+    }
+    if (campaignToEdit) {
+      return [];
+    }
+    return contacts.filter((c) => !c.isDoNotCall).map((c) => c.id);
+  });
+
+  const filteredContacts = useMemo(() => {
+    if (!contactSearchQuery.trim()) return contacts;
+    const q = contactSearchQuery.toLowerCase();
+    return contacts.filter((c) =>
+      c.name.toLowerCase().includes(q) ||
+      (c.phoneNumber && c.phoneNumber.toLowerCase().includes(q)) ||
+      (c.companyName && c.companyName.toLowerCase().includes(q)) ||
+      (c.tags && c.tags.some((t) => t.toLowerCase().includes(q)))
+    );
+  }, [contacts, contactSearchQuery]);
 
   const callableCount = useMemo(() => {
     return selectedContactIds.filter((id) => {
@@ -760,26 +966,91 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
     }).length;
   }, [selectedContactIds, contacts]);
 
+  const selectedDncCount = useMemo(() => {
+    return selectedContactIds.filter((id) => {
+      const ct = contacts.find((c) => c.id === id);
+      return ct && ct.isDoNotCall;
+    }).length;
+  }, [selectedContactIds, contacts]);
+
+  const handleSelectAllCallable = () => {
+    const callableIds = contacts.filter((c) => !c.isDoNotCall).map((c) => c.id);
+    setSelectedContactIds(callableIds);
+  };
+
+  const handleClearAll = () => {
+    setSelectedContactIds([]);
+  };
+
+  const handleToggleContact = (contactId: string) => {
+    setSelectedContactIds((prev) =>
+      prev.includes(contactId) ? prev.filter((id) => id !== contactId) : [...prev, contactId]
+    );
+  };
+
   const handleFinish = async () => {
     if (!formData.name?.trim()) {
       alert('Campaign name is required.');
+      setStep(1);
       return;
     }
 
+    setIsSaving(true);
     try {
+      if (campaignToEdit) {
+        let updatedCampaign: Campaign = {
+          ...campaignToEdit,
+          ...formData,
+          name: formData.name.trim(),
+          targetContactIds: selectedContactIds,
+          contactCount: selectedContactIds.length
+        };
+
+        try {
+          const res = await api.updateCampaign(campaignToEdit.id, {
+            ...formData,
+            name: formData.name.trim(),
+            targetContactIds: selectedContactIds
+          });
+          if (res.success && res.data) {
+            updatedCampaign = res.data;
+          }
+        } catch {
+          // Local fallback handled
+        }
+
+        try {
+          await api.attachContactsToCampaign(campaignToEdit.id, {
+            contactIds: selectedContactIds
+          });
+        } catch {
+          // Ignore if already attached via updateCampaign
+        }
+
+        onSave(updatedCampaign);
+        onClose();
+        return;
+      }
+
+      // Brand new campaign creation
       const res = await api.createCampaign({
         ...formData,
         targetContactIds: selectedContactIds
       });
 
       if (res.success && res.data) {
+        try {
+          await api.attachContactsToCampaign(res.data.id, {
+            contactIds: selectedContactIds
+          });
+        } catch {}
         onSave(res.data);
       } else {
         const localCampaign: Campaign = {
           id: `camp_${Date.now()}`,
           name: formData.name || 'New Campaign',
           description: formData.description,
-          callerId: formData.callerId || '+6498370000',
+          callerId: formData.callerId || '+17372508034',
           callerName: formData.callerName || 'Auckland Accounting Services',
           questionnaireId: formData.questionnaireId,
           status: 'draft',
@@ -803,15 +1074,28 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
       onClose();
     } catch (err: any) {
       alert(err.message || 'Failed to save campaign');
+    } finally {
+      setIsSaving(false);
     }
   };
+
+  const steps = [
+    { id: 1, label: '1. Campaign Info' },
+    { id: 2, label: '2. IVR Flow / Script' },
+    { id: 3, label: '3. Select Contacts' },
+    { id: 4, label: '4. Calling Window' }
+  ];
 
   return (
     <Modal
       isOpen={true}
       onClose={onClose}
       size="xl"
-      title={`Create Outbound Campaign (Step ${step} of 4)`}
+      title={
+        isEditing
+          ? `Edit Campaign & Contacts: ${formData.name || campaignToEdit?.name}`
+          : `Create Outbound Campaign (Step ${step} of 4)`
+      }
       footer={
         <div className="flex items-center justify-between w-full">
           <Button
@@ -821,19 +1105,56 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
           >
             {step > 1 ? 'Back' : 'Cancel'}
           </Button>
-          {step < 4 ? (
-            <Button variant="primary" size="sm" onClick={() => setStep(step + 1)}>
-              Continue
+          <div className="flex items-center gap-2">
+            {step < 4 && (
+              <Button variant="outline" size="sm" onClick={() => setStep(step + 1)}>
+                Next Step
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleFinish}
+              disabled={isSaving}
+            >
+              {isSaving
+                ? 'Saving...'
+                : isEditing
+                ? 'Save Changes'
+                : 'Save Campaign (Draft)'}
             </Button>
-          ) : (
-            <Button variant="primary" size="sm" onClick={handleFinish}>
-              Save Campaign (Draft)
-            </Button>
-          )}
+          </div>
         </div>
       }
     >
       <div className="space-y-4 text-xs">
+        {/* Step Navigation Tabs */}
+        <div className="flex border-b border-slate-200 pb-2 mb-4 gap-1 overflow-x-auto">
+          {steps.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setStep(s.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                step === s.id
+                  ? 'bg-[#0f2e4a] text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span>{s.label}</span>
+              {s.id === 3 && (
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                    step === s.id ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {callableCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
         {step === 1 && (
           <div className="space-y-3">
             <h4 className="text-sm font-semibold text-slate-900">Campaign Identity</h4>
@@ -903,45 +1224,119 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
 
         {step === 3 && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-slate-900">Audience Selection</h4>
-              <span className="text-xs text-emerald-700 font-medium">{callableCount} callable selected</span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900">Audience & Contact Selection</h4>
+                <p className="text-[11px] text-slate-500">
+                  Select specific contacts to dial in this campaign.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={handleSelectAllCallable}
+                  leftIcon={<CheckSquare className="w-3.5 h-3.5 text-emerald-600" />}
+                >
+                  Select All Callable ({contacts.filter((c) => !c.isDoNotCall).length})
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={handleClearAll}
+                  leftIcon={<Square className="w-3.5 h-3.5 text-slate-500" />}
+                >
+                  Clear All
+                </Button>
+              </div>
             </div>
-            <div className="border border-slate-200 rounded-lg overflow-hidden max-h-56 overflow-y-auto divide-y divide-slate-100">
-              {contacts.map((c) => {
-                const isSelected = selectedContactIds.includes(c.id);
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => {
-                      setSelectedContactIds((prev) =>
-                        isSelected ? prev.filter((id) => id !== c.id) : [...prev, c.id]
-                      );
-                    }}
-                    className={`p-2.5 flex items-center justify-between cursor-pointer hover:bg-slate-50 ${
-                      isSelected ? 'bg-blue-50/30' : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        readOnly
-                        className="rounded text-[#0f2e4a]"
-                      />
-                      <div>
-                        <span className="font-medium text-slate-900">{c.name}</span>
-                        <span className="text-slate-500 text-[11px] ml-1.5 font-mono">{c.phoneNumber}</span>
+
+            {/* Search contacts bar */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                value={contactSearchQuery}
+                onChange={(e) => setContactSearchQuery(e.target.value)}
+                placeholder="Search contacts by name, phone, company, or tag..."
+                className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-[#0f2e4a] focus:outline-none"
+              />
+            </div>
+
+            {/* Selection stats summary */}
+            <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs">
+              <span className="font-semibold text-slate-700">Selection Summary:</span>
+              <span className="text-emerald-700 font-medium flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {callableCount} callable selected
+              </span>
+              {selectedDncCount > 0 && (
+                <span className="text-red-600 font-medium flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  {selectedDncCount} DNC suppressed
+                </span>
+              )}
+              <span className="text-slate-400 ml-auto font-mono text-[11px]">
+                {selectedContactIds.length} of {contacts.length} total
+              </span>
+            </div>
+
+            {/* Contact list with checkboxes */}
+            <div className="border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto divide-y divide-slate-100">
+              {filteredContacts.length === 0 ? (
+                <div className="p-6 text-center text-slate-400 text-xs">
+                  No contacts found matching "{contactSearchQuery}".
+                </div>
+              ) : (
+                filteredContacts.map((c) => {
+                  const isSelected = selectedContactIds.includes(c.id);
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => handleToggleContact(c.id)}
+                      className={`p-2.5 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors ${
+                        isSelected ? 'bg-blue-50/40' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleContact(c.id)}
+                          className="rounded text-[#0f2e4a] cursor-pointer"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900 truncate">{c.name}</span>
+                            {c.companyName && (
+                              <span className="text-[11px] text-slate-500 truncate hidden sm:inline">
+                                • {c.companyName}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-slate-500 text-[11px]">
+                            <span className="font-mono">{c.phoneNumber}</span>
+                            {c.groups && c.groups.length > 0 && (
+                              <span className="text-slate-400 text-[10px]">
+                                [{c.groups.join(', ')}]
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="shrink-0 ml-2">
+                        {c.isDoNotCall ? (
+                          <Badge variant="danger" size="sm">DNC</Badge>
+                        ) : (
+                          <Badge variant="success" size="sm">Callable</Badge>
+                        )}
                       </div>
                     </div>
-                    {c.isDoNotCall ? (
-                      <Badge variant="danger" size="sm">DNC</Badge>
-                    ) : (
-                      <Badge variant="success" size="sm">Callable</Badge>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
         )}

@@ -5,7 +5,7 @@ import { Button, Input, Card, PageHeader } from '../ui';
 export const SettingsView: React.FC = () => {
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('18:00');
-  const [callerId, setCallerId] = useState('+6498370000');
+  const [callerId, setCallerId] = useState('+17372508034');
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   const handleSave = () => {

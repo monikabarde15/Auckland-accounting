@@ -409,6 +409,13 @@ class ApiClient {
     });
   }
 
+  public async attachContactsToCampaign(id: string, payload: { contactIds?: string[]; groupIds?: string[] }): Promise<ApiResponse<any>> {
+    return this.request(`/campaigns/${id}/contacts`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
   public async deleteCampaign(id: string): Promise<ApiResponse<{ success: boolean; deletedId: string }>> {
     return this.request(`/campaigns/${id}`, {
       method: 'DELETE'
@@ -488,6 +495,26 @@ class ApiClient {
 
   public async getCallById(id: string): Promise<ApiResponse<{ call: any }>> {
     return this.request(`/calls/${id}`);
+  }
+
+  public async testLiveCall(payload: {
+    phoneNumber?: string;
+    callerId?: string;
+    campaignId?: string;
+  }): Promise<
+    ApiResponse<{
+      callSid: string;
+      status: string;
+      to: string;
+      from: string;
+      direction: string;
+      dateCreated?: string;
+    }>
+  > {
+    return this.request('/calls/test-live', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   }
 
   // -----------------------------------------------------------

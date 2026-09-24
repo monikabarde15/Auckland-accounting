@@ -65,7 +65,7 @@ export class CallWorker {
   /**
    * Main job processor.
    */
-  public async processCallJob(job: Job<OutboundCallJobData>): Promise<{ success: boolean; reason?: string }> {
+  public async processCallJob(job: Job<OutboundCallJobData> | { id?: string; data: OutboundCallJobData }): Promise<{ success: boolean; reason?: string }> {
     if (this.isShuttingDown) {
       return { success: false, reason: 'Worker shutting down' };
     }
@@ -250,8 +250,15 @@ export class CallWorker {
 
 export const callWorker = new CallWorker();
 
-// Allow running standalone from CLI
-if (process.argv[1] && process.argv[1].endsWith('callWorker.ts')) {
+// Allow running standalone from CLI (supports both .ts under tsx and .js under Node/PM2)
+const isWorkerMain = Boolean(
+  process.argv[1] &&
+  (process.argv[1].endsWith('callWorker.ts') ||
+   process.argv[1].endsWith('callWorker.js') ||
+   process.argv[1].includes('callWorker'))
+);
+
+if (isWorkerMain) {
   callWorker.start().catch((err) => {
     logger.error({ error: (err as Error).message }, 'Fatal error starting call worker');
     process.exit(1);

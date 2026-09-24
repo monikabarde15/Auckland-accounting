@@ -18,7 +18,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#f8f9fb] flex">
+    <div className="min-h-screen bg-[#f8f9fb] flex w-full overflow-x-hidden">
       {/* Sidebar Navigation */}
       <Sidebar
         currentPath={currentPath}
@@ -29,7 +29,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       />
 
       {/* Main Layout Area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-60">
+      <div className="flex-1 flex flex-col min-w-0 lg:pl-60 overflow-x-hidden">
         {/* Mobile Header Toggle */}
         <div className="lg:hidden h-12 px-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
           <button
@@ -44,8 +44,8 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div className="w-5" />
         </div>
 
-        {/* Page Content Container */}
-        <main className="flex-1 p-5 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        {/* Page Content Container - Full screen width responsive container */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-7 w-full min-w-0">
           {children}
         </main>
       </div>

@@ -301,7 +301,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
               </Badge>
             </div>
             <p className="text-xs text-slate-500 font-normal mt-0.5 flex items-center gap-3">
-              <span>Caller ID: <strong className="font-mono text-slate-700">{campaign.callerId || '+64 9 837 0000'}</strong></span>
+              <span>Caller ID: <strong className="font-mono text-slate-700">{campaign.callerId || '+1 737 250 8034'}</strong></span>
               <span>•</span>
               <span>Flow: <strong className="text-slate-700">{questionnaire?.title || 'Default Practice Flow'}</strong></span>
               <span>•</span>

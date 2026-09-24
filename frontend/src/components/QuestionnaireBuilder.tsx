@@ -122,7 +122,7 @@ const PRACTICE_TEMPLATES: FlowTemplate[] = [
         name: 'Step 3: Transfer to Accountant',
         type: 'transfer',
         promptText: 'Understood. Transferring your call to your assigned accountant {assigned_accountant} now.',
-        transferPhoneNumber: '+64 9 837 0000',
+        transferPhoneNumber: '+1 737 250 8034',
         options: [],
         timeoutSeconds: 6,
         maxRetries: 1
@@ -173,7 +173,7 @@ const PRACTICE_TEMPLATES: FlowTemplate[] = [
         name: 'Step 4: Billing Team Transfer',
         type: 'transfer',
         promptText: 'Connecting you with the practice accounts team now.',
-        transferPhoneNumber: '+64 9 837 0000',
+        transferPhoneNumber: '+1 737 250 8034',
         options: [],
         timeoutSeconds: 6,
         maxRetries: 1
@@ -208,7 +208,7 @@ const PRACTICE_TEMPLATES: FlowTemplate[] = [
         name: 'Step 2: Service Recovery Routing',
         type: 'transfer',
         promptText: 'We apologize that we did not meet your expectations. Routing you to our client relations manager now.',
-        transferPhoneNumber: '+64 9 837 0000',
+        transferPhoneNumber: '+1 737 250 8034',
         options: [],
         timeoutSeconds: 6,
         maxRetries: 1
@@ -341,7 +341,7 @@ const PRACTICE_TEMPLATES: FlowTemplate[] = [
         name: 'Step 5: Staff Transfer (Transfer)',
         type: 'transfer',
         promptText: 'Transferring your call to your assigned accountant {assigned_accountant} now.',
-        transferPhoneNumber: '+64 9 837 0000',
+        transferPhoneNumber: '+1 737 250 8034',
         options: [],
         timeoutSeconds: 6,
         maxRetries: 1
@@ -544,7 +544,7 @@ export const QuestionnaireBuilder: React.FC<QuestionnaireBuilderProps> = ({
         type: newFlowForm.initialType,
         promptText: newFlowForm.initialPrompt.trim() || 'Kia Ora {client_name}, this is Auckland Accounting Services. Please confirm your details.',
         options: initialOptions,
-        transferPhoneNumber: newFlowForm.initialType === 'transfer' ? '+64 9 837 0000' : undefined,
+        transferPhoneNumber: newFlowForm.initialType === 'transfer' ? '+1 737 250 8034' : undefined,
         timeoutSeconds: 6,
         maxRetries: 2,
         retryPromptText: 'Sorry, that was not recognized. Please try again.'
@@ -1046,7 +1046,7 @@ export const QuestionnaireBuilder: React.FC<QuestionnaireBuilderProps> = ({
                       ) : q.type === 'transfer' ? (
                         <div className="text-blue-700 font-medium flex items-center gap-1">
                           <PhoneForwarded className="w-3.5 h-3.5" />
-                          <span>Transfers live call to: {q.transferPhoneNumber || '+64 9 837 0000'}</span>
+                          <span>Transfers live call to: {q.transferPhoneNumber || '+1 737 250 8034'}</span>
                         </div>
                       ) : q.type === 'numeric' ? (
                         <div className="p-2 bg-slate-50 rounded border border-slate-200 flex items-center justify-between text-xs">
@@ -1405,7 +1405,7 @@ const QuestionEditDrawer: React.FC<QuestionEditDrawerProps> = ({ question, allQu
       ...prev,
       type: newType,
       options: newOptions,
-      transferPhoneNumber: newType === 'transfer' ? (prev.transferPhoneNumber || '+64 9 837 0000') : prev.transferPhoneNumber
+      transferPhoneNumber: newType === 'transfer' ? (prev.transferPhoneNumber || '+1 737 250 8034') : prev.transferPhoneNumber
     }));
   };
 
@@ -1537,9 +1537,9 @@ const QuestionEditDrawer: React.FC<QuestionEditDrawerProps> = ({ question, allQu
             </div>
             <Input
               label="Transfer Destination Number"
-              value={formData.transferPhoneNumber || '+64 9 837 0000'}
+              value={formData.transferPhoneNumber || '+1 737 250 8034'}
               onChange={(e) => setFormData({ ...formData, transferPhoneNumber: e.target.value })}
-              placeholder="+64 9 837 0000"
+              placeholder="+1 737 250 8034"
             />
             <p className="text-[11px] text-blue-700">
               When the caller reaches this step, the platform will bridge the call to the specified practice telephone number.

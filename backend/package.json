@@ -12,7 +12,9 @@
     "test": "vitest run",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "preflight:live": "tsx scripts/productionPreflight.ts",
+    "test:live-call": "tsx scripts/testLiveCall.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

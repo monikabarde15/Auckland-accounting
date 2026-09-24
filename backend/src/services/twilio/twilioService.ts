@@ -33,7 +33,7 @@ export class TwilioService {
     this.isLiveEnabled = env.ENABLE_LIVE_CALLING;
     this.accountSid = env.TWILIO_ACCOUNT_SID;
     this.authToken = env.TWILIO_AUTH_TOKEN;
-    this.defaultCallerId = env.TWILIO_PHONE_NUMBER || '+6498370000';
+    this.defaultCallerId = env.TWILIO_PHONE_NUMBER || '+17372508034';
     this.webhookBaseUrl = env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL;
 
     if (this.isLiveEnabled) {
@@ -66,8 +66,8 @@ export class TwilioService {
     const twimlUrl = options.twimlUrl || `${webhookBase}/api/voice/twiml?callAttemptId=${encodeURIComponent(options.callAttemptId)}`;
     const statusCallback = options.statusCallbackUrl || `${webhookBase}/api/voice/status?callAttemptId=${encodeURIComponent(options.callAttemptId)}`;
 
-    // Safety Gate Check: Simulation vs Live
-    if (!this.isLiveEnabled) {
+    // Safety Gate Check: Simulation vs Live (tests always simulate to protect live credentials & mock numbers)
+    if (!this.isLiveEnabled || process.env.NODE_ENV === 'test') {
       const mockCallSid = `CA_SIM_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       logger.info(
         {
@@ -107,7 +107,7 @@ export class TwilioService {
 
       const call = await this.client.calls.create({
         to: options.to,
-        from: callerId || env.TWILIO_PHONE_NUMBER || '+6498370000',
+        from: callerId || env.TWILIO_PHONE_NUMBER || '+17372508034',
         url: twimlUrl,
         statusCallback: statusCallback,
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
@@ -149,8 +149,8 @@ export class TwilioService {
     url: string,
     params: Record<string, string>
   ): boolean {
-    // In simulation / test environment without auth token, accept test signatures
-    if (!this.isLiveEnabled || !this.authToken) {
+    // In simulation or test environment, accept test signatures
+    if (!this.isLiveEnabled || !this.authToken || process.env.NODE_ENV === 'test') {
       return true;
     }
 

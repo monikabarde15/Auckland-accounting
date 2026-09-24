@@ -3,6 +3,7 @@ import { CampaignStatus, CallJobStatus } from '@prisma/client';
 import { validateCampaignForLaunch } from './campaignValidationService.js';
 import { normalizePhoneNumber } from '../utils/phone.js';
 import { BadRequestError, NotFoundError } from '../errors/AppError.js';
+import { env } from '../config/env.js';
 import { logger } from '../middleware/logger.js';
 
 export interface CreateCampaignInput {
@@ -188,7 +189,7 @@ export async function createCampaign(input: CreateCampaignInput) {
   const {
     name,
     description,
-    callerId = '+6498370000',
+    callerId = env.TWILIO_PHONE_NUMBER || '+17372508034',
     callerName = 'Auckland Accounting',
     questionnaireId,
     callingStartTime = '09:00',
@@ -380,6 +381,23 @@ export async function transitionCampaignStatus(
 
   // Pre-Launch Validation Guard: If moving to RUNNING or SCHEDULED, all pre-launch checks must pass!
   if (targetStatus === CampaignStatus.RUNNING || targetStatus === CampaignStatus.SCHEDULED) {
+    // If campaign has 0 contacts attached, auto-attach available callable contacts from practice directory
+    const existingContactCount = await prisma.campaignContact.count({ where: { campaignId } });
+    if (existingContactCount === 0) {
+      const allCallable = await prisma.contact.findMany({
+        where: { isDoNotCall: false },
+        take: 20
+      });
+      if (allCallable.length > 0) {
+        await attachContactsToCampaign(campaignId, {
+          contactIds: allCallable.map((c) => c.id),
+          userId: context.userId,
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent
+        });
+      }
+    }
+
     const preLaunch = await validateCampaignForLaunch(campaignId);
     if (!preLaunch.isLaunchReady) {
       const failedChecks = preLaunch.checks.filter((c) => c.status === 'FAIL').map((c) => c.message);
@@ -483,8 +501,28 @@ export async function transitionCampaignStatus(
         } catch (queueErr) {
           logger.warn(
             { error: (queueErr as Error).message, callJobId: job.id },
-            'Failed to enqueue call job in BullMQ (job saved in DB)'
+            'Failed to enqueue call job in BullMQ (job saved in DB). Executing direct dial fallback...'
           );
+          // If Redis queue is offline, execute directly in background through callWorker
+          try {
+            const { callWorker } = await import('../workers/callWorker.js');
+            void callWorker.processCallJob({
+              id: `direct-${job.id}`,
+              data: {
+                campaignId,
+                contactId: target.contactId,
+                callJobId: job.id,
+                attemptNumber: job.attempts + 1
+              }
+            }).catch((directErr) => {
+              logger.error(
+                { error: (directErr as Error).message, callJobId: job.id },
+                'Direct call execution failed'
+              );
+            });
+          } catch (workerImportErr) {
+            logger.error({ error: (workerImportErr as Error).message }, 'Failed to import callWorker for direct dispatch');
+          }
         }
       }
     }

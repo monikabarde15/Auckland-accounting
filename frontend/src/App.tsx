@@ -49,7 +49,12 @@ function AculaWorkspace() {
         raw.includes('cnt_sharma') ||
         raw.includes('+91 80 4719') ||
         raw.includes('q_itr_reminder') ||
-        raw.includes('cmp_aug_gst')
+        raw.includes('cmp_aug_gst') ||
+        raw.includes('Sarah Jenkins') ||
+        raw.includes('cnt_nz_1') ||
+        raw.includes('Om Prakash') ||
+        raw.includes('8210543772') ||
+        raw.includes('cnt_omprakash_1')
       ) {
         localStorage.removeItem(key);
         return fallback;
@@ -96,7 +101,7 @@ function AculaWorkspace() {
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [simulatorQuestionnaire, setSimulatorQuestionnaire] = useState<Questionnaire | undefined>(() => questionnaires[0]);
   const [simulatorContact, setSimulatorContact] = useState<Contact | undefined>(() => contacts[0]);
-  const [simulatorCallerId, setSimulatorCallerId] = useState('+64 9 837 0000');
+  const [simulatorCallerId, setSimulatorCallerId] = useState('+1 737 250 8034');
   const [simulatorCampaignId, setSimulatorCampaignId] = useState<string>('');
   const [isSimulatingBatch, setIsSimulatingBatch] = useState(false);
   const [activeBatchCampaignId, setActiveBatchCampaignId] = useState<string | null>(null);
@@ -246,7 +251,7 @@ function AculaWorkspace() {
 
     if (campaign) {
       setSimulatorCampaignId(campaign.id);
-      setSimulatorCallerId(campaign.callerId || '+64 9 837 0000');
+      setSimulatorCallerId(campaign.callerId || '+1 737 250 8034');
     }
     if (questionnaire) setSimulatorQuestionnaire(questionnaire);
     if (contact) setSimulatorContact(contact);
@@ -323,7 +328,7 @@ function AculaWorkspace() {
           {
             speaker: 'system',
             text: isTransferred
-              ? 'Transfer Request: Routing call to assigned accountant (+64 9 837 0000).'
+              ? 'Transfer Request: Routing call to assigned accountant (+1 737 250 8034).'
               : 'Filing confirmed. Disconnecting.',
             timestamp: nowStr
           }

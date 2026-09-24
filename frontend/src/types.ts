@@ -29,7 +29,7 @@ export interface Question {
   minValue?: number;
   maxValue?: number;
   // Transfer configuration
-  transferPhoneNumber?: string; // e.g. "+64 9 837 0000"
+  transferPhoneNumber?: string; // e.g. "+1 737 250 8034"
   // Validation and timeout
   timeoutSeconds: number; // default 6s
   maxRetries: number; // default 2
@@ -285,7 +285,7 @@ export interface Campaign {
     startingQuestionId?: string | null;
   } | null;
   status: CampaignStatus;
-  callerId: string; // e.g. "+6498370000"
+  callerId: string; // e.g. "+17372508034"
   callerName?: string; // "Auckland Accounting Services"
   callingStartTime?: string;
   callingEndTime?: string;

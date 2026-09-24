@@ -3,10 +3,18 @@ import React from 'react';
 export interface TableProps extends React.TableHTMLAttributes<HTMLTableElement> {
   children: React.ReactNode;
   className?: string;
+  containerClassName?: string;
+  noScroll?: boolean;
 }
 
-export const Table: React.FC<TableProps> = ({ children, className = '', ...props }) => (
-  <div className="w-full overflow-x-auto border border-slate-200 rounded-lg bg-white">
+export const Table: React.FC<TableProps> = ({
+  children,
+  className = '',
+  containerClassName = '',
+  noScroll = false,
+  ...props
+}) => (
+  <div className={`w-full ${noScroll ? 'overflow-hidden' : 'overflow-x-auto'} border border-slate-200 rounded-lg bg-white ${containerClassName}`}>
     <table className={`w-full text-left text-sm text-slate-700 ${className}`} {...props}>
       {children}
     </table>

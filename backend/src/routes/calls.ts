@@ -1,7 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import twilio from 'twilio';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { listCalls, getCallById } from '../services/callService.js';
+import { env } from '../config/env.js';
+import { BadRequestError } from '../errors/AppError.js';
 import { CallStatus } from '@prisma/client';
 
 export const callsRouter = Router();
@@ -48,6 +51,56 @@ callsRouter.get('/:id', requirePermission('calls.view'), async (req: Request, re
     const call = await getCallById(req.params.id);
     res.json({ success: true, data: call });
   } catch (err) {
+    next(err);
+  }
+});
+
+const testLiveCallSchema = z.object({
+  phoneNumber: z.string().min(1, 'Recipient phone number is required'),
+  callerId: z.string().optional(),
+  campaignId: z.string().optional()
+});
+
+/**
+ * POST /api/calls/test-live
+ * Initiates an authenticated live outbound test call via Twilio to test real telephony.
+ */
+callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const body = testLiveCallSchema.parse(req.body);
+    const targetNumber = body.phoneNumber.trim();
+    const fromNumber = (body.callerId || env.TWILIO_PHONE_NUMBER || '+17372508034').trim();
+
+    if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) {
+      throw new BadRequestError('Twilio credentials (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN) are not configured on server.');
+    }
+
+    const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+
+    // For trial accounts, Twilio requires an approved webhook URL
+    const webhookUrl =
+      env.TWILIO_WEBHOOK_BASE_URL && env.TWILIO_WEBHOOK_BASE_URL.startsWith('https://')
+        ? `${env.TWILIO_WEBHOOK_BASE_URL}/api/voice/twiml`
+        : 'https://webhooks.twilio.com/v1/Voice/Template/voice_speech_recognition';
+
+    const call = await client.calls.create({
+      to: targetNumber,
+      from: fromNumber,
+      url: webhookUrl
+    });
+
+    res.json({
+      success: true,
+      data: {
+        callSid: call.sid,
+        status: call.status,
+        to: targetNumber,
+        from: fromNumber,
+        direction: call.direction,
+        dateCreated: call.dateCreated
+      }
+    });
+  } catch (err: any) {
     next(err);
   }
 });
