@@ -96,11 +96,16 @@ export const ContactDirectory: React.FC<ContactDirectoryProps> = ({
   const { hasPermission } = useAuth();
   
   const filteredContacts = contacts.filter((c) => {
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase().trim();
+    const cleanQuery = q.replace(/[\s\-\(\)\+]/g, '');
+    const cleanPhone = (c.phoneNumber || '').replace(/[\s\-\(\)\+]/g, '');
+
     const matchesSearch =
+      !q ||
       c.name.toLowerCase().includes(q) ||
       (c.companyName || '').toLowerCase().includes(q) ||
-      c.phoneNumber.includes(searchQuery) ||
+      (c.phoneNumber && c.phoneNumber.includes(q)) ||
+      (cleanQuery && cleanPhone.includes(cleanQuery)) ||
       (c.email || '').toLowerCase().includes(q);
 
     const matchesDnc =
@@ -108,12 +113,25 @@ export const ContactDirectory: React.FC<ContactDirectoryProps> = ({
         ? true
         : dncFilter === 'callable'
         ? !c.isDoNotCall
-        : c.isDoNotCall;
+        : !!c.isDoNotCall;
 
     const matchesConsent =
       consentFilter === 'all' ? true : c.consentStatus === consentFilter;
 
-    return matchesSearch && matchesDnc && matchesConsent;
+    const matchesGroup =
+      selectedGroupId === 'all'
+        ? true
+        : Array.isArray(c.groups) &&
+          c.groups.some((g: any) =>
+            typeof g === 'string' ? g === selectedGroupId : g.id === selectedGroupId || g.name === selectedGroupId
+          );
+
+    const matchesEntityType =
+      entityTypeFilter === 'all'
+        ? true
+        : String(c.entityType || '').toLowerCase() === entityTypeFilter.toLowerCase();
+
+    return matchesSearch && matchesDnc && matchesConsent && matchesGroup && matchesEntityType;
   });
 
   const totalPages = Math.max(1, Math.ceil(filteredContacts.length / pageSize));

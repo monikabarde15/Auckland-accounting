@@ -330,7 +330,62 @@ export const INITIAL_QUESTIONNAIRES: Questionnaire[] = [
   }
 ];
 
-export const INITIAL_CONTACTS: Contact[] = [];
+export const INITIAL_CONTACTS: Contact[] = [
+  {
+    id: 'cmufic50r0000v4jg3r86y1v5',
+    name: 'Mr. Om',
+    companyName: 'Om Prakash & Associates',
+    phoneNumber: '+918210543772',
+    email: 'omprakash@aucklandaccounting.co.nz',
+    entityType: 'Company',
+    irdNumber: '128-492-381',
+    assignedAccountant: 'David Chen (CA)',
+    outstandingBalance: 1250.0,
+    dueDate: new Date().toISOString().split('T')[0],
+    tags: ['VIP', 'Live Testing'],
+    isDoNotCall: false,
+    callPermission: true,
+    consentStatus: 'GRANTED',
+    groups: ['GST Tax Filings'],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'cmuhxurl80004v4bsu1qpp712',
+    name: 'Kiwi Enterprise Ltd',
+    companyName: 'Kiwi Enterprise Ltd',
+    phoneNumber: '+64219867947',
+    email: 'accounts@kiwienterprise.co.nz',
+    entityType: 'Company',
+    irdNumber: '49-102-394',
+    assignedAccountant: 'Priya Sharma (CPA)',
+    outstandingBalance: 480.0,
+    dueDate: new Date().toISOString().split('T')[0],
+    tags: ['GST', 'Monthly'],
+    isDoNotCall: false,
+    callPermission: true,
+    consentStatus: 'GRANTED',
+    groups: ['GST Tax Filings'],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'cmuhxurp10005v4bs6r3t3dlz',
+    name: 'Auckland Construction Group',
+    companyName: 'Auckland Construction Group',
+    phoneNumber: '+64229868083',
+    email: 'info@aucklandconstruction.co.nz',
+    entityType: 'Company',
+    irdNumber: '88-341-902',
+    assignedAccountant: 'David Chen (CA)',
+    outstandingBalance: 2400.0,
+    dueDate: new Date().toISOString().split('T')[0],
+    tags: ['Fee Reminders'],
+    isDoNotCall: false,
+    callPermission: true,
+    consentStatus: 'GRANTED',
+    groups: ['Fee Reminders'],
+    createdAt: new Date().toISOString()
+  }
+];
 
 export const INITIAL_CAMPAIGNS: Campaign[] = [
   {

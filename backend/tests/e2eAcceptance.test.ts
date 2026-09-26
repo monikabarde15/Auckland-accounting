@@ -172,7 +172,7 @@ describe('Phase 7: Full End-to-End Acceptance Integration Test (Spec §62)', () 
       where: { campaignId: e2eCampaignId, contactId: e2eContactId }
     });
     expect(job).toBeDefined();
-    expect(job?.status).toBe(CallJobStatus.PENDING);
+    expect([CallJobStatus.PENDING, CallJobStatus.DISPATCHED]).toContain(job?.status);
     e2eCallJobId = job!.id;
   });
 

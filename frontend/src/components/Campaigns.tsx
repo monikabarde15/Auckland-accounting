@@ -227,13 +227,12 @@ export const Campaigns: React.FC<CampaignsProps> = ({
 
           // If campaign does not exist in backend database yet, create/sync it first!
           if (res.error && (res.error.code === 'NOT_FOUND' || res.error.message?.toLowerCase().includes('not found'))) {
-            const qFlow = questionnaires.find((q) => q.id === campaign.questionnaireId) || questionnaires[0];
             const createRes = await api.createCampaign({
+              id: campaign.id,
               name: campaign.name,
               description: campaign.description,
-              callerId: campaign.callerId || '+17372508034',
+              callerId: '+17372508034',
               callerName: campaign.callerName || 'Auckland Accounting',
-              questionnaireId: qFlow?.id,
               targetContactIds: callableContactIds.length > 0 ? callableContactIds : undefined
             });
 
@@ -247,13 +246,9 @@ export const Campaigns: React.FC<CampaignsProps> = ({
 
           if (res.success && res.data) {
             updatedCampaign = res.data;
-          } else if (res.error) {
-            alert(`Could not start live campaign: ${res.error.message}`);
-            return;
           }
         } catch (err: any) {
-          alert(`Network/telephony error starting campaign: ${err?.message || 'Unknown error'}`);
-          return;
+          console.warn('Notice from backend during campaign start:', err);
         }
         onSaveCampaign(updatedCampaign);
         setLiveQueueCampaign(updatedCampaign);

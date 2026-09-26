@@ -19,6 +19,7 @@ import { validateCampaignForLaunch } from '../services/campaignValidationService
 const router = Router();
 
 const createCampaignSchema = z.object({
+  id: z.string().optional(),
   name: z.string().min(1, 'Campaign name is required').max(150),
   description: z.string().max(1000).optional(),
   callerId: z.string().optional(),

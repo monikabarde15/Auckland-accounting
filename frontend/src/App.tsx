@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
+import { api } from './services/api';
 import { AppShell } from './components/layout/AppShell';
 import { LoginPage } from './components/auth/LoginPage';
 import { ForgotPasswordPage } from './components/auth/ForgotPasswordPage';
@@ -49,12 +50,7 @@ function AculaWorkspace() {
         raw.includes('cnt_sharma') ||
         raw.includes('+91 80 4719') ||
         raw.includes('q_itr_reminder') ||
-        raw.includes('cmp_aug_gst') ||
-        raw.includes('Sarah Jenkins') ||
-        raw.includes('cnt_nz_1') ||
-        raw.includes('Om Prakash') ||
-        raw.includes('8210543772') ||
-        raw.includes('cnt_omprakash_1')
+        raw.includes('cmp_aug_gst')
       ) {
         localStorage.removeItem(key);
         return fallback;
@@ -113,6 +109,33 @@ function AculaWorkspace() {
   useEffect(() => {
     localStorage.setItem('ak_accounting_contacts', JSON.stringify(contacts));
   }, [contacts]);
+
+  // Sync contacts from backend database on load / user login
+  useEffect(() => {
+    let isMounted = true;
+    const syncBackendContacts = async () => {
+      try {
+        const res = await api.getContacts({ limit: 100 });
+        if (isMounted && res.success && res.data?.contacts && res.data.contacts.length > 0) {
+          const backendContacts = res.data.contacts;
+          setContacts((prev) => {
+            const backendIds = new Set(backendContacts.map((c) => c.id));
+            const localOnly = prev.filter((c) => !backendIds.has(c.id));
+            const merged = [...backendContacts, ...localOnly];
+            localStorage.setItem('ak_accounting_contacts', JSON.stringify(merged));
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.warn('Could not sync contacts from backend API:', err);
+      }
+    };
+
+    syncBackendContacts();
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
 
   useEffect(() => {
     localStorage.setItem('ak_accounting_campaigns', JSON.stringify(campaigns));

@@ -45,6 +45,7 @@ export interface SafeUser {
 export interface AuthResponseData {
   user: SafeUser;
   accessToken: string;
+  refreshToken?: string;
 }
 
 export interface SystemHealthData {
@@ -94,6 +95,26 @@ class ApiClient {
 
   public getAccessToken(): string | null {
     return this.accessToken;
+  }
+
+  public getRefreshToken(): string | null {
+    try {
+      return localStorage.getItem('ak_refresh_token');
+    } catch {
+      return null;
+    }
+  }
+
+  public setRefreshToken(token: string | null) {
+    try {
+      if (token) {
+        localStorage.setItem('ak_refresh_token', token);
+      } else {
+        localStorage.removeItem('ak_refresh_token');
+      }
+    } catch {
+      // Storage unavailable in restricted sandboxes
+    }
   }
 
   private onRefreshed(token: string | null) {
@@ -189,28 +210,47 @@ class ApiClient {
       body: JSON.stringify({ email, password })
     });
 
-    if (res.success && res.data?.accessToken) {
-      this.setAccessToken(res.data.accessToken);
+    if (res.success && res.data) {
+      if (res.data.accessToken) {
+        this.setAccessToken(res.data.accessToken);
+      }
+      if (res.data.refreshToken) {
+        this.setRefreshToken(res.data.refreshToken);
+      }
     }
     return res;
   }
 
-  public async refresh(): Promise<ApiResponse<AuthResponseData>> {
+  public async refresh(explicitToken?: string): Promise<ApiResponse<AuthResponseData>> {
+    const tokenToSend = explicitToken || this.getRefreshToken();
     const res = await this.request<AuthResponseData>('/auth/refresh', {
-      method: 'POST'
+      method: 'POST',
+      body: tokenToSend ? JSON.stringify({ refreshToken: tokenToSend }) : undefined
     });
 
-    if (res.success && res.data?.accessToken) {
-      this.setAccessToken(res.data.accessToken);
+    if (res.success && res.data) {
+      if (res.data.accessToken) {
+        this.setAccessToken(res.data.accessToken);
+      }
+      if (res.data.refreshToken) {
+        this.setRefreshToken(res.data.refreshToken);
+      }
+    } else {
+      // Clear token cache if refresh failed with unauthenticated state
+      this.setAccessToken(null);
+      this.setRefreshToken(null);
     }
     return res;
   }
 
   public async logout(): Promise<ApiResponse<{ message: string }>> {
+    const tokenToSend = this.getRefreshToken();
     const res = await this.request<{ message: string }>('/auth/logout', {
-      method: 'POST'
+      method: 'POST',
+      body: tokenToSend ? JSON.stringify({ refreshToken: tokenToSend }) : undefined
     });
     this.setAccessToken(null);
+    this.setRefreshToken(null);
     return res;
   }
 
@@ -514,6 +554,31 @@ class ApiClient {
     return this.request('/calls/test-live', {
       method: 'POST',
       body: JSON.stringify(payload)
+    });
+  }
+
+  public async getLiveCallStatus(callSid: string): Promise<
+    ApiResponse<{
+      callSid: string;
+      status: string;
+      duration: number;
+      startTime?: string;
+      endTime?: string;
+      to: string;
+      from: string;
+    }>
+  > {
+    return this.request(`/calls/live-status/${callSid}`);
+  }
+
+  public async hangupLiveCall(callSid: string): Promise<
+    ApiResponse<{
+      callSid: string;
+      status: string;
+    }>
+  > {
+    return this.request(`/calls/live-hangup/${callSid}`, {
+      method: 'POST'
     });
   }
 

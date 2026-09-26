@@ -63,6 +63,17 @@ export const ContactManager: React.FC<ContactManagerProps> = ({
     }
   }, [location.pathname]);
 
+  const loadContacts = async () => {
+    try {
+      const res = await api.getContacts({ limit: 100 });
+      if (res.success && res.data?.contacts && res.data.contacts.length > 0) {
+        onImportContacts(res.data.contacts);
+      }
+    } catch {
+      // Handled
+    }
+  };
+
   const loadGroups = async () => {
     try {
       const res = await api.getContactGroups();
@@ -75,6 +86,7 @@ export const ContactManager: React.FC<ContactManagerProps> = ({
   };
 
   useEffect(() => {
+    loadContacts();
     loadGroups();
   }, []);
 
@@ -151,6 +163,7 @@ export const ContactManager: React.FC<ContactManagerProps> = ({
         }
         onSaveContact(newContact);
       }
+      await loadContacts();
     } finally {
       setIsEditorModalOpen(false);
     }

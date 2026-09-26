@@ -132,12 +132,12 @@ export const LoginPage: React.FC = () => {
             </Button>
           </form>
 
-          {/* Demo & Test Credentials 1-Click Quick-Fill (Dev & Staging Only by default) */}
-          {(import.meta.env.VITE_SHOW_DEMO_CREDENTIALS === 'true' || import.meta.env.DEV) && (
+          {/* Practice Credentials 1-Click Quick-Fill */}
+          {import.meta.env.VITE_HIDE_DEMO_CREDENTIALS !== 'true' && (
             <div className="mt-6 pt-5 border-t border-slate-100">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
-                <span>Demo & Test Credentials (1-Click Login)</span>
+                <span>Practice Staff Credentials (1-Click Login)</span>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <button

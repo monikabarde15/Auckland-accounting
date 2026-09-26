@@ -23,21 +23,23 @@ export const authRouter = Router();
 const REFRESH_COOKIE_NAME = '__acula_refresh';
 
 function setRefreshCookie(res: Response, token: string, expiresAt: Date) {
+  const isProd = env.NODE_ENV === 'production';
   res.cookie(REFRESH_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/api/auth',
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    path: '/',
     expires: expiresAt
   });
 }
 
 function clearRefreshCookie(res: Response) {
+  const isProd = env.NODE_ENV === 'production';
   res.clearCookie(REFRESH_COOKIE_NAME, {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/api/auth'
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    path: '/'
   });
 }
 
@@ -67,7 +69,8 @@ authRouter.post(
         success: true,
         data: {
           user: result.user,
-          accessToken: result.accessToken
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken
         }
       });
     } catch (err) {
@@ -102,7 +105,8 @@ authRouter.post(
         success: true,
         data: {
           user: result.user,
-          accessToken: result.accessToken
+          accessToken: result.accessToken,
+          refreshToken: result.newRefreshToken
         }
       });
     } catch (err) {
