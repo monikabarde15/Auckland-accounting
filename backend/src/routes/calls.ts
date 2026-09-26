@@ -3,6 +3,7 @@ import { z } from 'zod';
 import twilio from 'twilio';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { listCalls, getCallById } from '../services/callService.js';
+import { prisma } from '../services/prisma.js';
 import { env } from '../config/env.js';
 import { BadRequestError } from '../errors/AppError.js';
 import { CallStatus } from '@prisma/client';
@@ -58,7 +59,9 @@ callsRouter.get('/:id', requirePermission('calls.view'), async (req: Request, re
 const testLiveCallSchema = z.object({
   phoneNumber: z.string().min(1, 'Recipient phone number is required'),
   callerId: z.string().optional(),
-  campaignId: z.string().optional()
+  campaignId: z.string().optional(),
+  questionnaireId: z.string().optional(),
+  promptText: z.string().optional()
 });
 
 /**
@@ -77,31 +80,96 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
 
     const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
 
-    // For trial accounts, Twilio requires an approved webhook URL
-    const webhookUrl =
-      env.TWILIO_WEBHOOK_BASE_URL && env.TWILIO_WEBHOOK_BASE_URL.startsWith('https://')
-        ? `${env.TWILIO_WEBHOOK_BASE_URL}/api/voice/twiml`
-        : 'https://webhooks.twilio.com/v1/Voice/Template/voice_speech_recognition';
+    // Resolve the exact questionnaire prompt created for this campaign or passed dynamically
+    let initialPrompt = body.promptText?.trim();
 
-    const call = await client.calls.create({
-      to: targetNumber,
-      from: fromNumber,
-      url: webhookUrl,
-      record: true
-    });
+    if (!initialPrompt && (body.campaignId || body.questionnaireId)) {
+      try {
+        if (body.campaignId) {
+          const camp = await prisma.campaign.findUnique({
+            where: { id: body.campaignId },
+            include: {
+              questionnaire: {
+                include: { questions: { orderBy: { orderNo: 'asc' } } }
+              }
+            }
+          });
+          if (camp?.questionnaire?.questions?.[0]?.questionText) {
+            initialPrompt = camp.questionnaire.questions[0].questionText;
+          }
+        }
+        if (!initialPrompt && body.questionnaireId) {
+          const qnr = await prisma.questionnaire.findUnique({
+            where: { id: body.questionnaireId },
+            include: { questions: { orderBy: { orderNo: 'asc' } } }
+          });
+          if (qnr?.questions?.[0]?.questionText) {
+            initialPrompt = qnr.questions[0].questionText;
+          }
+        }
+      } catch {
+        // Fallback
+      }
+    }
 
-    res.json({
-      success: true,
-      data: {
-        callSid: call.sid,
-        status: call.status,
+    // Build self-contained, valid XML inline TwiML containing the exact questionnaire prompt and DTMF interaction
+    const escapeXml = (unsafe: string) =>
+      unsafe.replace(/[<>&'"]/g, (c) => {
+        switch (c) {
+          case '<': return '&lt;';
+          case '>': return '&gt;';
+          case '&': return '&amp;';
+          case '\'': return '&apos;';
+          case '"': return '&quot;';
+          default: return c;
+        }
+      });
+
+    const speakText = initialPrompt || 'Kia ora. This is an automated notification from Auckland Accounting regarding your account.';
+    const escapedPrompt = escapeXml(speakText);
+
+    const inlineTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">${escapedPrompt}</Say>
+  <Gather input="dtmf" numDigits="1" timeout="8">
+    <Say voice="Polly.Aria-Neural" language="en-NZ">Please press 1 to confirm, or press 2 to request a callback from your accountant.</Say>
+  </Gather>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">Thank you for your response. Auckland Accounting has recorded your submission. Have a wonderful day.</Say>
+  <Hangup/>
+</Response>`;
+
+    try {
+      const call = await client.calls.create({
         to: targetNumber,
         from: fromNumber,
-        direction: call.direction,
-        dateCreated: call.dateCreated,
-        record: true
+        twiml: inlineTwiml
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          callSid: call.sid,
+          status: call.status,
+          to: targetNumber,
+          from: fromNumber,
+          direction: call.direction,
+          dateCreated: call.dateCreated
+        }
+      });
+    } catch (twilioErr: any) {
+      const errorMsg = twilioErr?.message || '';
+      const errorCode = twilioErr?.code || twilioErr?.status;
+
+      // Friendly explanation for Twilio Trial account restrictions
+      if (errorMsg.includes('trial accounts') || errorMsg.includes('verified recipient') || errorCode === 21215 || errorCode === 21608) {
+        return res.status(400).json({
+          success: false,
+          error: `Twilio Trial Restriction: Recipient number (${targetNumber}) must be verified in your Twilio Console (Verified Caller IDs), and the Caller ID (${fromNumber}) must be your active Twilio trial number. Details: ${errorMsg}`
+        });
       }
-    });
+
+      throw twilioErr;
+    }
   } catch (err: any) {
     next(err);
   }

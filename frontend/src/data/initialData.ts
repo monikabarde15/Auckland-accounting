@@ -335,7 +335,7 @@ export const INITIAL_CONTACTS: Contact[] = [
     id: 'cmufic50r0000v4jg3r86y1v5',
     name: 'Mr. Om',
     companyName: 'Om Prakash & Associates',
-    phoneNumber: '+918210543772',
+    phoneNumber: '+917089526977',
     email: 'omprakash@aucklandaccounting.co.nz',
     entityType: 'Company',
     irdNumber: '128-492-381',

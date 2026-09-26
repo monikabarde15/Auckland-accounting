@@ -47,13 +47,13 @@ export interface CampaignListParams {
 
 // Valid state machine transitions
 const ALLOWED_TRANSITIONS: Record<CampaignStatus, CampaignStatus[]> = {
-  [CampaignStatus.DRAFT]: [CampaignStatus.SCHEDULED, CampaignStatus.RUNNING, CampaignStatus.CANCELLED],
-  [CampaignStatus.SCHEDULED]: [CampaignStatus.RUNNING, CampaignStatus.PAUSED, CampaignStatus.CANCELLED],
-  [CampaignStatus.RUNNING]: [CampaignStatus.PAUSED, CampaignStatus.COMPLETED, CampaignStatus.CANCELLED, CampaignStatus.FAILED],
-  [CampaignStatus.PAUSED]: [CampaignStatus.RUNNING, CampaignStatus.COMPLETED, CampaignStatus.CANCELLED],
-  [CampaignStatus.COMPLETED]: [],
-  [CampaignStatus.CANCELLED]: [],
-  [CampaignStatus.FAILED]: []
+  [CampaignStatus.DRAFT]: [CampaignStatus.SCHEDULED, CampaignStatus.RUNNING, CampaignStatus.PAUSED, CampaignStatus.CANCELLED],
+  [CampaignStatus.SCHEDULED]: [CampaignStatus.RUNNING, CampaignStatus.PAUSED, CampaignStatus.CANCELLED, CampaignStatus.DRAFT],
+  [CampaignStatus.RUNNING]: [CampaignStatus.PAUSED, CampaignStatus.COMPLETED, CampaignStatus.CANCELLED, CampaignStatus.FAILED, CampaignStatus.RUNNING],
+  [CampaignStatus.PAUSED]: [CampaignStatus.RUNNING, CampaignStatus.COMPLETED, CampaignStatus.CANCELLED, CampaignStatus.PAUSED, CampaignStatus.DRAFT],
+  [CampaignStatus.COMPLETED]: [CampaignStatus.RUNNING, CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.COMPLETED],
+  [CampaignStatus.CANCELLED]: [CampaignStatus.RUNNING, CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.CANCELLED],
+  [CampaignStatus.FAILED]: [CampaignStatus.RUNNING, CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.FAILED]
 };
 
 /**
@@ -461,6 +461,9 @@ export async function transitionCampaignStatus(
   }
 
   const currentStatus = campaign.status;
+  if (currentStatus === targetStatus) {
+    return getCampaignById(campaign.id);
+  }
 
   // Validate state machine transition
   const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
@@ -472,32 +475,13 @@ export async function transitionCampaignStatus(
 
   // Pre-Launch Validation Guard: If moving to RUNNING or SCHEDULED, all pre-launch checks must pass!
   if (targetStatus === CampaignStatus.RUNNING || targetStatus === CampaignStatus.SCHEDULED) {
-    // If campaign has 0 contacts attached, auto-attach available callable contacts from practice directory (outside test mode)
+    // If campaign has 0 contacts attached, attach available callable contacts from practice directory (outside test mode)
     const existingContactCount = await prisma.campaignContact.count({ where: { campaignId } });
     if (env.NODE_ENV !== 'test' && existingContactCount === 0) {
-      let allCallable = await prisma.contact.findMany({
+      const allCallable = await prisma.contact.findMany({
         where: { isDoNotCall: false },
-        take: 20
+        take: 50
       });
-      if (allCallable.length === 0) {
-        try {
-          const defaultContact = await prisma.contact.create({
-            data: {
-              name: 'Mr. Om',
-              companyName: 'Om Prakash & Associates',
-              phoneNumber: '+918210543772',
-              email: 'omprakash@aucklandaccounting.co.nz',
-              entityType: 'COMPANY',
-              isDoNotCall: false,
-              callPermission: true,
-              assignedAccountant: 'David Chen (CA)'
-            }
-          });
-          allCallable = [defaultContact];
-        } catch {
-          // Handled
-        }
-      }
       if (allCallable.length > 0) {
         await attachContactsToCampaign(campaignId, {
           contactIds: allCallable.map((c) => c.id),

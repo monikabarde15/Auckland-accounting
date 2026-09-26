@@ -3,7 +3,7 @@ import { env } from '../src/config/env.js';
 
 async function testLiveCall() {
   const targetNumber = process.argv[2];
-  const fromNumber = env.TWILIO_PHONE_NUMBER || '+17372508034';
+  let fromNumber = env.TWILIO_PHONE_NUMBER || '+17372508034';
 
   console.log('================================================================');
   console.log('         ACULA TELEPHONY — SINGLE-NUMBER PILOT TEST CALL        ');
@@ -18,6 +18,41 @@ async function testLiveCall() {
   if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) {
     console.error('❌ Error: TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set in backend/.env');
     process.exit(1);
+  }
+
+  const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+
+  try {
+    const acc = await client.api.v2010.accounts(env.TWILIO_ACCOUNT_SID).fetch();
+    console.log(`Twilio Account: ${acc.friendlyName} | Status: ${acc.status} | Type: ${acc.type}`);
+
+    const incoming = await client.incomingPhoneNumbers.list();
+    console.log(`Active Incoming Phone Numbers (${incoming.length}):`);
+    incoming.forEach(n => console.log(`  - Phone: ${n.phoneNumber}, Name: ${n.friendlyName}`));
+
+    const outgoing = await client.outgoingCallerIds.list();
+    console.log(`Verified Caller IDs / Recipient Numbers (${outgoing.length}):`);
+    outgoing.forEach(n => console.log(`  - Phone: ${n.phoneNumber}, Name: ${n.friendlyName}`));
+
+    if (incoming.length === 0) {
+      console.log('\n⚠️ No active Twilio phone number found on this account.');
+      console.log('Attempting to provision a free trial phone number...');
+      try {
+        const available = await client.availablePhoneNumbers('US').local.list({ limit: 1 });
+        if (available.length > 0) {
+          const newNum = await client.incomingPhoneNumbers.create({ phoneNumber: available[0].phoneNumber });
+          console.log(`✅ Successfully assigned Twilio Trial Number: ${newNum.phoneNumber}`);
+          fromNumber = newNum.phoneNumber;
+        }
+      } catch (err: any) {
+        console.log('Could not automatically provision number via API:', err.message);
+        console.log('👉 Please click "Get a trial number" in your Twilio Console dashboard: https://console.twilio.com');
+      }
+    } else {
+      fromNumber = incoming[0].phoneNumber;
+    }
+  } catch (e: any) {
+    console.warn('Could not list numbers:', e.message);
   }
 
   console.log(`From (Caller ID): ${fromNumber}`);

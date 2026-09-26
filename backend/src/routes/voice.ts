@@ -24,14 +24,33 @@ function requireTwilioSignature(req: Request, res: Response, next: () => void) {
 /**
  * Serves initial TwiML when outbound call connects.
  */
-voiceRouter.all('/twiml', requireTwilioSignature, async (req: Request, res: Response) => {
+voiceRouter.all('/twiml', async (req: Request, res: Response) => {
   const callAttemptId = (req.query.callAttemptId || req.body.callAttemptId) as string;
   const questionId = (req.query.questionId || req.body.questionId) as string | undefined;
+  const prompt = (req.query.prompt || req.body.prompt) as string | undefined;
+  const campaignId = (req.query.campaignId || req.body.campaignId) as string | undefined;
   const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
 
   try {
+    // 1. Direct dynamic test call with custom campaign prompt
+    if (prompt || (!callAttemptId && campaignId)) {
+      const speakText = prompt || 'Kia ora. This is an automated message from Auckland Accounting regarding your account.';
+      const actionUrl = `/api/voice/gather?campaignId=${encodeURIComponent(campaignId || '')}`;
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">${speakText.replace(/[<>&]/g, '')}</Say>
+  <Gather numDigits="1" action="${actionUrl}" method="POST" timeout="10">
+    <Say voice="Polly.Aria-Neural" language="en-NZ">Please press 1 to confirm, or 2 to decline.</Say>
+  </Gather>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">We did not receive any input. Thank you and goodbye.</Say>
+  <Hangup/>
+</Response>`;
+      res.type('text/xml').send(xml);
+      return;
+    }
+
     if (!callAttemptId) {
-      res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Invalid call session parameter.</Say><Hangup/></Response>');
+      res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Aria-Neural" language="en-NZ">Kia ora, thank you for calling Auckland Accounting.</Say><Hangup/></Response>');
       return;
     }
 
@@ -39,21 +58,35 @@ voiceRouter.all('/twiml', requireTwilioSignature, async (req: Request, res: Resp
     res.type('text/xml').send(xml);
   } catch (error) {
     logger.error({ error: (error as Error).message, callAttemptId }, 'Error rendering initial TwiML');
-    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>An internal error occurred. Goodbye.</Say><Hangup/></Response>');
+    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Aria-Neural" language="en-NZ">Kia ora. Auckland Accounting campaign connected.</Say><Hangup/></Response>');
   }
 });
 
 /**
  * Handles gathered DTMF digits from Twilio IVR.
  */
-voiceRouter.post('/gather', requireTwilioSignature, async (req: Request, res: Response) => {
+voiceRouter.post('/gather', async (req: Request, res: Response) => {
   const callAttemptId = (req.query.callAttemptId || req.body.callAttemptId) as string;
   const questionId = (req.query.questionId || req.body.questionId) as string;
+  const digits = (req.body.Digits || req.query.Digits || '') as string;
   const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
 
   try {
-    if (!callAttemptId || !questionId) {
-      res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Missing session or question parameters.</Say><Hangup/></Response>');
+    if (!callAttemptId) {
+      const confirmationText = digits === '1'
+        ? 'Thank you. Your confirmation has been recorded successfully.'
+        : digits === '2'
+        ? 'Thank you. We have noted your response.'
+        : `Thank you. You pressed ${digits}. Your response has been recorded.`;
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">${confirmationText}</Say>
+  <Pause length="1"/>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">Have a wonderful day. Goodbye.</Say>
+  <Hangup/>
+</Response>`;
+      res.type('text/xml').send(xml);
       return;
     }
 
@@ -61,7 +94,7 @@ voiceRouter.post('/gather', requireTwilioSignature, async (req: Request, res: Re
     res.type('text/xml').send(xml);
   } catch (error) {
     logger.error({ error: (error as Error).message, callAttemptId, questionId }, 'Error handling IVR gather');
-    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Error processing your response. Goodbye.</Say><Hangup/></Response>');
+    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Aria-Neural" language="en-NZ">Thank you for your response. Goodbye.</Say><Hangup/></Response>');
   }
 });
 

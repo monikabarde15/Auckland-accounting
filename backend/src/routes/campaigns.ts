@@ -48,7 +48,10 @@ const createCampaignSchema = z.object({
 const updateCampaignSchema = createCampaignSchema.partial();
 
 const statusTransitionSchema = z.object({
-  status: z.enum(['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED', 'COMPLETED', 'CANCELLED', 'FAILED'])
+  status: z.preprocess(
+    (val) => (typeof val === 'string' ? val.toUpperCase() : val),
+    z.enum(['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED', 'COMPLETED', 'CANCELLED', 'FAILED'])
+  )
 });
 
 const attachContactsSchema = z.object({

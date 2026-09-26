@@ -201,7 +201,9 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
               durationSeconds: finalDuration,
               completedAt: new Date().toISOString(),
               recordingUrl: resolvedRecordingUrl,
-              currentStepPrompt: `Call concluded with status: ${statusText}. Duration: ${finalDuration}s. Audio recorded.`,
+              currentStepPrompt: isAnswered
+                ? `Call concluded with status: ${statusText}. Duration: ${finalDuration}s. Audio recorded.`
+                : customReason || `Call concluded with status: ${statusText}.`,
               responseSummary: outcomeText
             }
           : item
@@ -318,10 +320,33 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     );
 
     try {
+      const activeQuestionnaire = questionnaire;
+      const firstQ = activeQuestionnaire?.questions?.[0];
+      let rawPrompt = firstQ?.promptText || '';
+
+      // If options exist and prompt doesn't already contain button instructions, append them
+      if (firstQ?.options && firstQ.options.length > 0 && !rawPrompt.toLowerCase().includes('press')) {
+        const optionPrompts = firstQ.options.map((opt) => `Press ${opt.dtmfDigit} for ${opt.label}`).join(', or ');
+        rawPrompt = `${rawPrompt.trim()} ${optionPrompts}.`;
+      }
+
+      const interpolatedPrompt = rawPrompt
+        ? rawPrompt
+            .replace(/\{client_name\}/g, currentContact.name)
+            .replace(/\{company_name\}/g, currentContact.companyName || 'Auckland Accounting')
+            .replace(/\{due_date\}/g, currentContact.dueDate || 'the 28th')
+            .replace(/\{outstanding_balance\}/g, `$${currentContact.outstandingBalance || 0}`)
+            .replace(/\{balance\}/g, `$${currentContact.outstandingBalance || 0}`)
+            .replace(/\{assigned_accountant\}/g, currentContact.assignedAccountant || 'David Chen (CA)')
+            .replace(/\{ird_number\}/g, currentContact.irdNumber || '')
+        : undefined;
+
       const res = await api.testLiveCall({
         phoneNumber: currentContact.phoneNumber,
         callerId: dialCallerId,
-        campaignId: campaign.id
+        campaignId: campaign.id,
+        questionnaireId: campaign.questionnaireId,
+        promptText: interpolatedPrompt
       });
 
       if (res.success && res.data?.callSid) {
@@ -382,7 +407,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                           ...item,
                           status: 'IN_PROGRESS',
                           currentStepPrompt: prompt,
-                          responseSummary: 'Live on channel (Answered & Recording Active)'
+                          responseSummary: 'Live on channel (Answered & Connected)'
                         }
                       : item
                   )
@@ -405,7 +430,10 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
           }
         }, 2000);
       } else {
-        const errMsg = res.error?.message || 'Telephony dialing request rejected';
+        const errMsg =
+          typeof res.error === 'string'
+            ? res.error
+            : res.error?.message || 'Telephony dialing request rejected';
         phoneAudio.stopRingtone();
         speechService.stop();
         handleCallFinished(nextIdx, currentContact, 'failed', 0, errMsg);
@@ -416,6 +444,46 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
       handleCallFinished(nextIdx, currentContact, 'failed', 0, err?.message || 'Network error placing call');
     }
   };
+
+  // Ref to track if completion has fired to avoid duplicate state updates
+  const hasEndedRef = useRef<boolean>(false);
+
+  // Statistics (all contacts callable, no DNC suppression)
+  const stats = useMemo(() => {
+    const total = queueItems.length;
+    const queued = queueItems.filter((i) => i.status === 'QUEUED').length;
+    const dialing = queueItems.filter((i) => i.status === 'IN_PROGRESS' || i.status === 'DIALING').length;
+    const completed = queueItems.filter((i) => i.status === 'COMPLETED').length;
+    const transferred = queueItems.filter((i) => i.status === 'TRANSFERRED').length;
+    const processed = completed + transferred;
+    const progressPercent = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+    return { total, queued, dialing, completed, transferred, processed, progressPercent };
+  }, [queueItems]);
+
+  const isCampaignCompleted = stats.total > 0 && stats.queued === 0 && stats.dialing === 0 && activeCallIndex === null;
+
+  // Auto-complete campaign and prevent infinite loop when all contacts have been dialed
+  useEffect(() => {
+    if (isCampaignCompleted && !hasEndedRef.current) {
+      hasEndedRef.current = true;
+      setIsAutoDialing(false);
+      phoneAudio.stopRingtone();
+      speechService.stop();
+      if (autoDialRef.current) clearTimeout(autoDialRef.current);
+      if (pollRef.current) clearInterval(pollRef.current);
+
+      // Persist COMPLETED status locally and to backend database
+      if (onUpdateCampaign) {
+        onUpdateCampaign({ ...campaign, status: 'COMPLETED' });
+      }
+      try {
+        api.updateCampaignStatus?.(campaign.id, 'COMPLETED').catch(() => {});
+      } catch {
+        // Safe fallback
+      }
+    }
+  }, [isCampaignCompleted, campaign, onUpdateCampaign]);
 
   // Continuous auto-dial progression effect: waits for active call to finish!
   useEffect(() => {
@@ -440,19 +508,6 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
       if (autoDialRef.current) clearTimeout(autoDialRef.current);
     };
   }, [isAutoDialing, activeCallIndex, queueItems, dialSpeed]);
-
-  // Statistics (all contacts callable, no DNC suppression)
-  const stats = useMemo(() => {
-    const total = queueItems.length;
-    const queued = queueItems.filter((i) => i.status === 'QUEUED').length;
-    const dialing = queueItems.filter((i) => i.status === 'IN_PROGRESS' || i.status === 'DIALING').length;
-    const completed = queueItems.filter((i) => i.status === 'COMPLETED').length;
-    const transferred = queueItems.filter((i) => i.status === 'TRANSFERRED').length;
-    const processed = completed + transferred;
-    const progressPercent = total > 0 ? Math.round((processed / total) * 100) : 0;
-
-    return { total, queued, dialing, completed, transferred, processed, progressPercent };
-  }, [queueItems]);
 
   // Filtered queue items for table
   const filteredItems = useMemo(() => {
@@ -487,8 +542,8 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-slate-900">{campaign.name}</h3>
-              <Badge variant={isAutoDialing || activeCallIndex !== null ? 'success' : 'neutral'} dot>
-                {activeCallIndex !== null ? 'Live Dialing' : isAutoDialing ? 'Auto-Dialing' : 'Queue Standby'}
+              <Badge variant={isCampaignCompleted ? 'neutral' : (isAutoDialing || activeCallIndex !== null ? 'success' : 'neutral')} dot={!isCampaignCompleted}>
+                {isCampaignCompleted ? 'Campaign Completed' : activeCallIndex !== null ? 'Live Dialing' : isAutoDialing ? 'Auto-Dialing' : 'Queue Standby'}
               </Badge>
             </div>
             <p className="text-xs text-slate-500 font-normal mt-0.5 flex items-center gap-3">
@@ -578,6 +633,28 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
           </div>
         </div>
 
+        {/* Campaign Finished Notification Banner */}
+        {isCampaignCompleted && (
+          <div className="p-4 bg-emerald-50/90 border border-emerald-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-emerald-950 shadow-xs animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-emerald-900">Campaign Execution Completed</h4>
+                <p className="text-xs text-emerald-700 mt-0.5">
+                  All <strong>{stats.total}</strong> targeted contact{stats.total !== 1 ? 's' : ''} have been dialed. Dialing has concluded and the campaign is marked as Completed.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <Button variant="primary" size="sm" onClick={onClose} className="bg-emerald-700 hover:bg-emerald-800 text-white">
+                Close Monitor
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Progress Bar & Queue Controls Bar */}
         <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -643,15 +720,17 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
 
               {!isAutoDialing ? (
                 <Button
-                  variant="primary"
+                  variant={isCampaignCompleted ? 'outline' : 'primary'}
                   size="sm"
                   onClick={() => {
+                    if (isCampaignCompleted || stats.queued === 0) return;
                     setIsAutoDialing(true);
                     if (activeCallIndex === null) dialNextContact();
                   }}
-                  leftIcon={<Play className="w-3.5 h-3.5 fill-white" />}
+                  disabled={isCampaignCompleted || stats.queued === 0}
+                  leftIcon={isCampaignCompleted ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <Play className="w-3.5 h-3.5 fill-white" />}
                 >
-                  {stats.queued > 0 ? 'Auto-Dial Queue' : 'Queue Finished'}
+                  {isCampaignCompleted ? 'Campaign Completed' : stats.queued > 0 ? 'Auto-Dial Queue' : 'Queue Finished'}
                 </Button>
               ) : (
                 <Button
@@ -668,7 +747,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                 variant="outline"
                 size="sm"
                 onClick={dialNextContact}
-                disabled={stats.queued === 0 || activeCallIndex !== null}
+                disabled={isCampaignCompleted || stats.queued === 0 || activeCallIndex !== null}
                 leftIcon={<ArrowRight className="w-3.5 h-3.5" />}
               >
                 Dial Single Next

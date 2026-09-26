@@ -492,6 +492,13 @@ class ApiClient {
     });
   }
 
+  public async updateCampaignStatus(id: string, status: string): Promise<ApiResponse<Campaign>> {
+    return this.request(`/campaigns/${id}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status })
+    });
+  }
+
   public async startCampaign(id: string): Promise<ApiResponse<Campaign>> {
     return this.request(`/campaigns/${id}/start`, {
       method: 'POST'
@@ -565,6 +572,8 @@ class ApiClient {
     phoneNumber?: string;
     callerId?: string;
     campaignId?: string;
+    questionnaireId?: string;
+    promptText?: string;
   }): Promise<
     ApiResponse<{
       callSid: string;
