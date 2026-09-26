@@ -71,7 +71,6 @@ export interface SystemHealthData {
 
 class ApiClient {
   private baseUrl: string;
-  private accessToken: string | null = null;
   private isRefreshing = false;
   private refreshSubscribers: Array<(token: string | null) => void> = [];
 
@@ -89,11 +88,35 @@ class ApiClient {
     return this.baseUrl;
   }
 
+  private accessToken: string | null = (() => {
+    try {
+      return localStorage.getItem('ak_access_token');
+    } catch {
+      return null;
+    }
+  })();
+
   public setAccessToken(token: string | null) {
     this.accessToken = token;
+    try {
+      if (token) {
+        localStorage.setItem('ak_access_token', token);
+      } else {
+        localStorage.removeItem('ak_access_token');
+      }
+    } catch {
+      // Storage unavailable in restricted sandboxes
+    }
   }
 
   public getAccessToken(): string | null {
+    if (!this.accessToken) {
+      try {
+        this.accessToken = localStorage.getItem('ak_access_token');
+      } catch {
+        return null;
+      }
+    }
     return this.accessToken;
   }
 
@@ -133,8 +156,9 @@ class ApiClient {
       ...((options.headers as Record<string, string>) || {})
     };
 
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
+    const token = this.getAccessToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
     try {

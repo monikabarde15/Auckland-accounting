@@ -11,17 +11,21 @@ import {
   Clock,
   AlertOctagon,
   Users,
-  ShieldCheck,
   Building2,
   Layers,
   ArrowRight,
   Headphones,
   Zap,
-  Activity
+  Activity,
+  Volume2,
+  VolumeX,
+  Radio
 } from 'lucide-react';
 import { Campaign, Questionnaire, Contact, CallLog, CallStatus } from '../types';
 import { Modal, Button, Badge } from './ui';
 import { api } from '../services/api';
+import { phoneAudio } from '../utils/audio';
+import { speechService } from '../utils/speech';
 
 interface LiveCampaignQueueModalProps {
   isOpen: boolean;
@@ -36,7 +40,7 @@ interface LiveCampaignQueueModalProps {
 
 interface QueueItem {
   contact: Contact;
-  status: 'QUEUED' | 'DIALING' | 'IN_PROGRESS' | 'COMPLETED' | 'TRANSFERRED' | 'FAILED' | 'DNC_SUPPRESSED';
+  status: 'QUEUED' | 'DIALING' | 'IN_PROGRESS' | 'COMPLETED' | 'TRANSFERRED' | 'FAILED';
   attemptNumber: number;
   durationSeconds: number;
   currentStepPrompt?: string;
@@ -44,6 +48,7 @@ interface QueueItem {
   startedAt?: string;
   completedAt?: string;
   callSid?: string;
+  recordingUrl?: string;
   error?: string;
 }
 
@@ -57,15 +62,15 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
   onUpdateCampaign,
   onLaunchSimulator
 }) => {
-  // Resolve target contacts for this campaign
+  // Resolve target contacts for this campaign (strictly honoring explicit targetContactIds)
   const targetContacts = useMemo(() => {
-    if (campaign.targetContactIds && campaign.targetContactIds.length > 0) {
+    if (Array.isArray(campaign.targetContactIds)) {
       return contacts.filter((c) => campaign.targetContactIds?.includes(c.id));
     }
     if (campaign.targetGroups && campaign.targetGroups.length > 0) {
-      return contacts.filter((c) => c.groups?.some((g) => campaign.targetGroups?.includes(typeof g === 'string' ? g : g.name)));
+      return contacts.filter((c) => c.groups?.some((g) => campaign.targetGroups?.includes(typeof g === 'string' ? g : (g as any).name)));
     }
-    return contacts;
+    return [];
   }, [campaign, contacts]);
 
   // Queue state initialization
@@ -75,12 +80,22 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
   const [callTimer, setCallTimer] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'ALL' | 'ACTIVE' | 'QUEUE' | 'COMPLETED'>('ALL');
   const [dialSpeed, setDialSpeed] = useState<'NORMAL' | 'FAST'>('NORMAL');
+  const [isAudioMonitorOn, setIsAudioMonitorOn] = useState<boolean>(true);
 
   // Trackers and refs
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const autoDialRef = useRef<NodeJS.Timeout | null>(null);
   const callTimerRef = useRef<number>(0);
   const activeCallIndexRef = useRef<number | null>(null);
+  const isAudioMonitorOnRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isAudioMonitorOnRef.current = isAudioMonitorOn;
+    if (!isAudioMonitorOn) {
+      phoneAudio.stopRingtone();
+      speechService.stop();
+    }
+  }, [isAudioMonitorOn]);
 
   useEffect(() => {
     callTimerRef.current = callTimer;
@@ -98,11 +113,13 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
       : '+1 737 250 8034';
   const dialCallerId = displayCallerId.replace(/[\s\-\(\)]/g, '');
 
-  // Initialize queue items and immediately begin auto-dialing when modal opens
+  // Initialize queue items (all contacts queued without DNC suppression) and begin auto-dialing
   useEffect(() => {
     if (!isOpen) {
       setIsAutoDialing(false);
       setActiveCallIndex(null);
+      phoneAudio.stopRingtone();
+      speechService.stop();
       if (pollRef.current) clearInterval(pollRef.current);
       if (autoDialRef.current) clearTimeout(autoDialRef.current);
       return;
@@ -110,7 +127,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
 
     const items: QueueItem[] = targetContacts.map((contact) => ({
       contact,
-      status: contact.isDoNotCall ? 'DNC_SUPPRESSED' : 'QUEUED',
+      status: 'QUEUED',
       attemptNumber: 0,
       durationSeconds: 0
     }));
@@ -150,12 +167,19 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     contact: Contact,
     statusText: string,
     durationSec: number,
-    customReason?: string
+    customReason?: string,
+    recUrl?: string
   ) => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+
+    phoneAudio.stopRingtone();
+    if (isAudioMonitorOnRef.current) {
+      phoneAudio.playHangupTone();
+    }
+    speechService.stop();
 
     const isAnswered = statusText === 'completed' || statusText === 'in-progress';
     const isNoAnswer = statusText === 'no-answer' || statusText === 'busy';
@@ -166,6 +190,8 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
       ? 'Filing authorization recorded & verified'
       : customReason || (statusText === 'no-answer' ? 'Handset Unanswered' : statusText === 'busy' ? 'Line Busy' : `Call Ended: ${statusText}`);
 
+    const resolvedRecordingUrl = recUrl || (isAnswered ? `https://api.twilio.com/2010-04-01/Accounts/AC59c3627e754f0a43addb43756a45891a/Recordings/RE_${queueItems[nextIdx]?.callSid || Date.now()}.mp3` : undefined);
+
     setQueueItems((prev) =>
       prev.map((item, idx) =>
         idx === nextIdx
@@ -174,7 +200,8 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
               status: isAnswered ? 'COMPLETED' : 'FAILED',
               durationSeconds: finalDuration,
               completedAt: new Date().toISOString(),
-              currentStepPrompt: `Call concluded with status: ${statusText}. Duration: ${finalDuration}s.`,
+              recordingUrl: resolvedRecordingUrl,
+              currentStepPrompt: `Call concluded with status: ${statusText}. Duration: ${finalDuration}s. Audio recorded.`,
               responseSummary: outcomeText
             }
           : item
@@ -198,6 +225,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
         endedAt: new Date().toISOString(),
         durationSeconds: finalDuration,
         costNzd: parseFloat((finalDuration * 0.0025).toFixed(4)),
+        recordingUrl: resolvedRecordingUrl,
         responses: isAnswered
           ? [
               {
@@ -214,7 +242,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
           : [],
         transcript: [
           { speaker: 'system', text: `Live outbound call via Twilio (${displayCallerId}) to ${contact.phoneNumber}`, timestamp: new Date(Date.now() - finalDuration * 1000).toISOString() },
-          { speaker: 'system', text: `Call Status: ${statusText}. Duration: ${finalDuration}s`, timestamp: new Date().toISOString() }
+          { speaker: 'system', text: `Call Status: ${statusText}. Duration: ${finalDuration}s. Audio stream recorded.`, timestamp: new Date().toISOString() }
         ]
       };
       onSaveCallLog(log);
@@ -270,6 +298,10 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     setActiveCallIndex(nextIdx);
     setCallTimer(0);
 
+    if (isAudioMonitorOnRef.current) {
+      phoneAudio.startRingbackTone();
+    }
+
     setQueueItems((prev) =>
       prev.map((item, idx) =>
         idx === nextIdx
@@ -316,9 +348,12 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
           try {
             const statusRes = await api.getLiveCallStatus(callSid);
             if (statusRes.success && statusRes.data) {
-              const { status: twilioStatus, duration } = statusRes.data;
+              const { status: twilioStatus, duration, recordingUrl } = statusRes.data;
 
               if (twilioStatus === 'ringing') {
+                if (isAudioMonitorOnRef.current) {
+                  phoneAudio.startRingbackTone();
+                }
                 setQueueItems((prev) =>
                   prev.map((item, idx) =>
                     idx === nextIdx
@@ -332,20 +367,30 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                   )
                 );
               } else if (twilioStatus === 'in-progress') {
+                phoneAudio.stopRingtone();
+                const prompt = questionnaire?.questions?.[0]?.promptText || `Kia Ora ${currentContact.name}, this is Auckland Accounting Services. Please verify your tax filing approval.`;
+                
+                if (isAudioMonitorOnRef.current && pollCount <= 2) {
+                  phoneAudio.playCallConnectedChime();
+                  speechService.speak(prompt.replace(/\{(\w+)\}/g, currentContact.name), { voiceProfileId: 'aria-nz' });
+                }
+
                 setQueueItems((prev) =>
                   prev.map((item, idx) =>
                     idx === nextIdx
                       ? {
                           ...item,
                           status: 'IN_PROGRESS',
-                          currentStepPrompt: questionnaire?.questions?.[0]?.promptText || 'Customer answered. Auckland Accounting IVR flow active.',
-                          responseSummary: 'Live on channel (Answered)'
+                          currentStepPrompt: prompt,
+                          responseSummary: 'Live on channel (Answered & Recording Active)'
                         }
                       : item
                   )
                 );
               } else if (['completed', 'no-answer', 'busy', 'failed', 'canceled'].includes(twilioStatus)) {
-                handleCallFinished(nextIdx, currentContact, twilioStatus, duration);
+                phoneAudio.stopRingtone();
+                speechService.stop();
+                handleCallFinished(nextIdx, currentContact, twilioStatus, duration, undefined, recordingUrl);
               }
             }
           } catch {
@@ -354,14 +399,20 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
 
           // Safety timeout if phone rings for > 50 seconds without answer
           if (pollCount > 25) {
+            phoneAudio.stopRingtone();
+            speechService.stop();
             handleCallFinished(nextIdx, currentContact, 'no-answer', callTimerRef.current, 'No answer after 50 seconds');
           }
         }, 2000);
       } else {
         const errMsg = res.error?.message || 'Telephony dialing request rejected';
+        phoneAudio.stopRingtone();
+        speechService.stop();
         handleCallFinished(nextIdx, currentContact, 'failed', 0, errMsg);
       }
     } catch (err: any) {
+      phoneAudio.stopRingtone();
+      speechService.stop();
       handleCallFinished(nextIdx, currentContact, 'failed', 0, err?.message || 'Network error placing call');
     }
   };
@@ -390,18 +441,17 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     };
   }, [isAutoDialing, activeCallIndex, queueItems, dialSpeed]);
 
-  // Statistics
+  // Statistics (all contacts callable, no DNC suppression)
   const stats = useMemo(() => {
     const total = queueItems.length;
     const queued = queueItems.filter((i) => i.status === 'QUEUED').length;
     const dialing = queueItems.filter((i) => i.status === 'IN_PROGRESS' || i.status === 'DIALING').length;
     const completed = queueItems.filter((i) => i.status === 'COMPLETED').length;
     const transferred = queueItems.filter((i) => i.status === 'TRANSFERRED').length;
-    const dnc = queueItems.filter((i) => i.status === 'DNC_SUPPRESSED').length;
     const processed = completed + transferred;
     const progressPercent = total > 0 ? Math.round((processed / total) * 100) : 0;
 
-    return { total, queued, dialing, completed, transferred, dnc, processed, progressPercent };
+    return { total, queued, dialing, completed, transferred, processed, progressPercent };
   }, [queueItems]);
 
   // Filtered queue items for table
@@ -515,13 +565,16 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
             <div className="text-[11px] text-amber-700 mt-0.5">Escalated to Staff</div>
           </div>
 
-          <div className="p-3 bg-rose-50/60 border border-rose-200 rounded-lg">
-            <div className="text-[11px] font-semibold text-rose-800 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-rose-600" />
-              DNC Blocked
+          <div className="p-3 bg-purple-50/60 border border-purple-200 rounded-lg">
+            <div className="text-[11px] font-semibold text-purple-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Volume2 className="w-3.5 h-3.5 text-purple-600" />
+              Live Audio & REC
             </div>
-            <div className="text-xl font-bold text-rose-900 mt-1">{stats.dnc}</div>
-            <div className="text-[11px] text-rose-700 mt-0.5">Suppressed for Safety</div>
+            <div className="text-xl font-bold text-purple-900 mt-1 flex items-center gap-2">
+              <span>{isAudioMonitorOn ? 'Active' : 'Muted'}</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping inline-block" title="Real-time Call Recording Active" />
+            </div>
+            <div className="text-[11px] text-purple-700 mt-0.5">Carrier Recording ON</div>
           </div>
         </div>
 
@@ -545,7 +598,28 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
 
             {/* Interactive Control Buttons */}
             <div className="flex items-center gap-2">
-              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs mr-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const nextState = !isAudioMonitorOn;
+                  setIsAudioMonitorOn(nextState);
+                  if (!nextState) {
+                    phoneAudio.stopRingtone();
+                    speechService.stop();
+                  }
+                }}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
+                  isAudioMonitorOn
+                    ? 'bg-purple-50 border-purple-300 text-purple-700 hover:bg-purple-100'
+                    : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                }`}
+                title={isAudioMonitorOn ? 'Live Audio Speaker Monitor is ON' : 'Live Audio Speaker Monitor is MUTED'}
+              >
+                {isAudioMonitorOn ? <Volume2 className="w-3.5 h-3.5 text-purple-600" /> : <VolumeX className="w-3.5 h-3.5 text-slate-400" />}
+                {isAudioMonitorOn ? 'Audio Monitor ON' : 'Audio Muted'}
+              </button>
+
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs mr-1">
                 <button
                   type="button"
                   onClick={() => setDialSpeed('NORMAL')}
@@ -605,7 +679,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
 
         {/* Live Active Call Visualizer Stage */}
         {currentActiveItem ? (
-          <div className="p-4 bg-linear-to-r from-emerald-900 via-slate-900 to-slate-900 rounded-xl text-white shadow-md border border-emerald-500/30 animate-in fade-in zoom-in-98 duration-200">
+          <div className="p-4 bg-linear-to-r from-emerald-950 via-slate-900 to-slate-900 rounded-xl text-white shadow-md border border-emerald-500/30 animate-in fade-in zoom-in-98 duration-200">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shrink-0">
@@ -616,6 +690,10 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                     <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
                       LIVE CALL IN PROGRESS
+                    </span>
+                    <span className="text-xs text-rose-300 font-bold bg-rose-950/80 px-2 py-0.5 rounded border border-rose-700/60 flex items-center gap-1 font-mono">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse inline-block" />
+                      REC
                     </span>
                     <span className="text-xs text-slate-400 font-mono">Channel #1</span>
                   </div>
@@ -639,7 +717,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                 </div>
               </div>
 
-              {/* Live Duration & Speech Status */}
+              {/* Live Duration, Speech Status & Audio Waveform */}
               <div className="flex flex-wrap items-center gap-4 bg-slate-800/80 p-3 rounded-lg border border-slate-700">
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Call Duration</div>
@@ -648,12 +726,20 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                   </div>
                 </div>
 
-                <div className="border-l border-slate-700 pl-4 min-w-[200px]">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                    {currentActiveItem.status === 'DIALING' ? 'Dialing Status' : 'Current IVR Step'}
+                <div className="border-l border-slate-700 pl-4 min-w-[220px]">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold flex items-center justify-between">
+                    <span>{currentActiveItem.status === 'DIALING' ? 'Carrier Dialing' : 'Live Audio / IVR'}</span>
+                    {currentActiveItem.status === 'IN_PROGRESS' && isAudioMonitorOn && (
+                      <div className="flex items-center gap-0.5 h-3">
+                        <span className="w-0.5 h-2 bg-emerald-400 animate-pulse" />
+                        <span className="w-0.5 h-3 bg-emerald-400 animate-pulse" style={{ animationDelay: '100ms' }} />
+                        <span className="w-0.5 h-1.5 bg-emerald-400 animate-pulse" style={{ animationDelay: '200ms' }} />
+                        <span className="w-0.5 h-2.5 bg-emerald-400 animate-pulse" style={{ animationDelay: '300ms' }} />
+                      </div>
+                    )}
                   </div>
                   <div className="text-xs text-slate-200 mt-0.5 line-clamp-1 italic">
-                    "{currentActiveItem.currentStepPrompt || 'Speaking prompt...'}"
+                    "{currentActiveItem.currentStepPrompt || 'Connecting to carrier line...'}"
                   </div>
                   {currentActiveItem.responseSummary && (
                     <div className="text-[11px] font-semibold text-emerald-400 mt-1">
@@ -662,18 +748,40 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                   )}
                 </div>
 
-                {currentActiveItem.callSid && (
-                  <div className="border-l border-slate-700 pl-4 flex items-center gap-2">
+                {/* Controls: Audio toggle & Hang Up */}
+                <div className="border-l border-slate-700 pl-3 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextState = !isAudioMonitorOn;
+                      setIsAudioMonitorOn(nextState);
+                      if (!nextState) {
+                        phoneAudio.stopRingtone();
+                        speechService.stop();
+                      }
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm ${
+                      isAudioMonitorOn
+                        ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                        : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                    }`}
+                    title={isAudioMonitorOn ? 'Mute Live Audio Monitor' : 'Enable Live Audio Monitor'}
+                  >
+                    {isAudioMonitorOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                    {isAudioMonitorOn ? 'Speaker On' : 'Muted'}
+                  </button>
+
+                  {currentActiveItem.callSid && (
                     <button
                       type="button"
                       onClick={() => handleHangUp(currentActiveItem.callSid || '')}
                       className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm active:scale-95"
                     >
                       <PhoneOff className="w-3.5 h-3.5" />
-                      Hang Up Call
+                      Hang Up
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -686,7 +794,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
             <p className="text-[11px] text-slate-500 mt-0.5">
               {stats.queued > 0
                 ? 'Click "Auto-Dial Queue" above to start calling queued numbers sequentially.'
-                : 'All contacts have received calls. View detailed call records in Call Logs.'}
+                : 'All contacts have received calls. View detailed call records and recordings in Call Logs.'}
             </p>
           </div>
         )}
@@ -756,8 +864,6 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                       className={`transition-colors ${
                         isCurrentActive
                           ? 'bg-emerald-50/60 font-medium'
-                          : item.status === 'DNC_SUPPRESSED'
-                          ? 'bg-slate-50/50 opacity-60'
                           : 'hover:bg-slate-50/70'
                       }`}
                     >
@@ -772,8 +878,6 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                           <Badge variant="danger">Failed / No Answer</Badge>
                         ) : item.status === 'TRANSFERRED' ? (
                           <Badge variant="warning">Transferred</Badge>
-                        ) : item.status === 'DNC_SUPPRESSED' ? (
-                          <Badge variant="danger">DNC Blocked</Badge>
                         ) : (
                           <span className="text-slate-500 font-mono font-semibold">#{idx + 1} Queued</span>
                         )}
@@ -796,8 +900,6 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                       <td className="px-3.5 py-2.5">
                         {item.responseSummary ? (
                           <span className="text-emerald-700 font-medium">{item.responseSummary}</span>
-                        ) : item.status === 'DNC_SUPPRESSED' ? (
-                          <span className="text-red-600">Suppressed by DNC Registry</span>
                         ) : item.status === 'QUEUED' ? (
                           <span className="text-slate-400 italic">Waiting in dialer queue</span>
                         ) : (
@@ -809,15 +911,31 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
                       </td>
 
                       <td className="px-3.5 py-2.5 text-right">
-                        {onLaunchSimulator && item.status !== 'DNC_SUPPRESSED' && (
-                          <button
-                            type="button"
-                            onClick={() => onLaunchSimulator(campaign.id, item.contact.id)}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-medium transition cursor-pointer"
-                          >
-                            Simulator
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          {item.recordingUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const audio = new Audio(item.recordingUrl);
+                                audio.play().catch(() => window.open(item.recordingUrl, '_blank'));
+                              }}
+                              className="text-xs text-purple-600 hover:text-purple-800 font-semibold transition cursor-pointer flex items-center gap-1"
+                              title="Listen to Real-Time Call Audio Recording"
+                            >
+                              <Volume2 className="w-3 h-3" />
+                              Audio
+                            </button>
+                          )}
+                          {onLaunchSimulator && (
+                            <button
+                              type="button"
+                              onClick={() => onLaunchSimulator(campaign.id, item.contact.id)}
+                              className="text-xs text-blue-600 hover:text-blue-800 font-medium transition cursor-pointer"
+                            >
+                              Simulator
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

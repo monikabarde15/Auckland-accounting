@@ -27,6 +27,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initAuth = async () => {
       try {
         const storedRefreshToken = api.getRefreshToken();
+        const storedAccessToken = api.getAccessToken();
+
+        if (storedAccessToken) {
+          api.setAccessToken(storedAccessToken);
+          const meRes = await api.getCurrentUser();
+          if (isMounted && meRes.success && meRes.data?.user) {
+            setUser(meRes.data.user);
+            setAccessToken(storedAccessToken);
+            return;
+          }
+        }
+
         const res = await api.refresh(storedRefreshToken || undefined);
         if (isMounted && res.success && res.data) {
           setUser(res.data.user);

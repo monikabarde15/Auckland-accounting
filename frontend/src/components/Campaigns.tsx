@@ -215,12 +215,12 @@ export const Campaigns: React.FC<CampaignsProps> = ({
         };
 
         // Resolve callable contacts for this campaign
-        const matchedContacts = campaign.targetContactIds && campaign.targetContactIds.length > 0
+        const matchedContacts = Array.isArray(campaign.targetContactIds)
           ? contacts.filter((ct) => campaign.targetContactIds?.includes(ct.id))
           : campaign.targetGroups && campaign.targetGroups.length > 0
           ? contacts.filter((ct) => ct.groups?.some((g) => campaign.targetGroups?.includes(typeof g === 'string' ? g : (g as any).name)))
-          : contacts;
-        const callableContactIds = matchedContacts.filter((ct) => !ct.isDoNotCall).map((ct) => ct.id);
+          : [];
+        const callableContactIds = matchedContacts.map((ct) => ct.id);
 
         try {
           let res = await api.startCampaign(campaign.id);
@@ -239,13 +239,20 @@ export const Campaigns: React.FC<CampaignsProps> = ({
             if (createRes.success && createRes.data) {
               res = await api.startCampaign(createRes.data.id);
               if (res.success && res.data) {
-                updatedCampaign = { ...res.data, id: createRes.data.id };
+                updatedCampaign = {
+                  ...res.data,
+                  id: createRes.data.id,
+                  targetContactIds: campaign.targetContactIds || callableContactIds
+                };
               }
             }
           }
 
           if (res.success && res.data) {
-            updatedCampaign = res.data;
+            updatedCampaign = {
+              ...res.data,
+              targetContactIds: campaign.targetContactIds || callableContactIds
+            };
           }
         } catch (err: any) {
           console.warn('Notice from backend during campaign start:', err);
@@ -487,26 +494,24 @@ export const Campaigns: React.FC<CampaignsProps> = ({
           }
         />
       ) : (
-        <Table containerClassName="w-full">
+        <Table containerClassName="w-full" noScroll={true} className="w-full table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHeaderCell className="w-[28%] min-w-[200px]">Campaign</TableHeaderCell>
-              <TableHeaderCell className="w-[18%] min-w-[140px]">Questionnaire Flow</TableHeaderCell>
-              <TableHeaderCell className="w-[14%] min-w-[120px]">Target Audience</TableHeaderCell>
-              <TableHeaderCell className="w-[14%] min-w-[120px]">Window</TableHeaderCell>
-              <TableHeaderCell className="w-[10%] min-w-[90px]">Status</TableHeaderCell>
-              <TableHeaderCell className="w-[16%] min-w-[210px] text-right">Actions</TableHeaderCell>
+              <TableHeaderCell className="w-[48%]">Campaign</TableHeaderCell>
+              <TableHeaderCell className="w-[18%]">Target Audience</TableHeaderCell>
+              <TableHeaderCell className="w-[14%]">Status</TableHeaderCell>
+              <TableHeaderCell className="w-[20%] text-right">Actions</TableHeaderCell>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredCampaigns.map((c) => {
               const s = String(c.status).toUpperCase();
               const qFlow = questionnaires.find((q) => q.id === c.questionnaireId) || c.questionnaire;
-              const matchedContacts = c.targetContactIds && c.targetContactIds.length > 0
+              const matchedContacts = Array.isArray(c.targetContactIds)
                 ? contacts.filter((ct) => c.targetContactIds?.includes(ct.id))
                 : c.targetGroups && c.targetGroups.length > 0
-                ? contacts.filter((ct) => ct.groups?.some((g) => c.targetGroups?.includes(g)))
-                : contacts;
+                ? contacts.filter((ct) => ct.groups?.some((g) => c.targetGroups?.includes(typeof g === 'string' ? g : (g as any).name)))
+                : [];
               const totalContacts = matchedContacts.length || c.contactCount || 0;
               const dncCount = matchedContacts.filter((ct) => ct.isDoNotCall).length;
               const callableCount = Math.max(0, matchedContacts.filter((ct) => !ct.isDoNotCall).length);
@@ -518,6 +523,14 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                   onClick: () => setLiveQueueCampaign(c)
                 }
               ];
+
+              if (onLaunchSimulator && hasPermission('calls.execute')) {
+                dropdownItems.push({
+                  label: 'Test in Simulator',
+                  icon: <Phone className="w-3.5 h-3.5 text-blue-600" />,
+                  onClick: () => onLaunchSimulator(c.id)
+                });
+              }
 
               if ((s === 'DRAFT' || s === 'READY' || s === 'SCHEDULED') && hasPermission('campaigns.start')) {
                 dropdownItems.push({
@@ -555,13 +568,6 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                 icon: <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />,
                 onClick: () => handleValidateCampaign(c)
               });
-              if (onLaunchSimulator && hasPermission('calls.execute')) {
-                dropdownItems.push({
-                  label: 'Test in Simulator',
-                  icon: <Phone className="w-3.5 h-3.5 text-slate-600" />,
-                  onClick: () => onLaunchSimulator(c.id)
-                });
-              }
               if ((s === 'RUNNING' || s === 'PAUSED' || s === 'DRAFT' || s === 'READY' || s === 'SCHEDULED') && hasPermission('campaigns.cancel')) {
                 dropdownItems.push({
                   label: 'Cancel Campaign',
@@ -579,26 +585,36 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                 });
               }
 
+              const cleanName =
+                c.name && !c.name.startsWith('Campaign cmp_') && c.name !== c.id
+                  ? c.name
+                  : c.id === 'cmp_nz_ird_verification'
+                  ? 'Inland Revenue ID & Security Verification'
+                  : c.id === 'cmp_nz_gst_q1'
+                  ? 'Q1 GST Filing Authorizations 2026'
+                  : c.id === 'cmp_nz_fee_reminders'
+                  ? 'Outstanding Fee & Balance Notifications'
+                  : c.id === 'cmp_nz_csat_survey'
+                  ? 'Annual Practice CSAT & Quality Survey'
+                  : c.id === 'cmp_nz_master_flow'
+                  ? 'End-to-End Master Flow (All Input Types)'
+                  : (c.name || 'Outbound Campaign').replace(/^Campaign\s+cmp_nz_/, '').replace(/_/g, ' ');
+
               return (
                 <TableRow key={c.id}>
-                  <TableCell>
-                    <div className="font-semibold text-slate-900 truncate" title={c.name}>{c.name}</div>
-                    <div className="text-xs text-slate-500 truncate" title={c.description || undefined}>{c.description || 'No description provided'}</div>
-                    <div className="text-[11px] text-slate-400 font-mono mt-0.5">Caller: {c.callerId}</div>
-                  </TableCell>
-
-                  <TableCell>
-                    {qFlow ? (
-                      <span className="text-xs text-slate-800 font-medium flex items-center gap-1.5 min-w-0" title={qFlow.title}>
+                  <TableCell className="overflow-hidden py-3.5">
+                    <div className="font-semibold text-slate-900 truncate text-sm" title={cleanName}>
+                      {cleanName}
+                    </div>
+                    {qFlow && (
+                      <div className="text-xs text-slate-500 font-medium flex items-center gap-1.5 mt-1 truncate" title={`Flow: ${qFlow.title}`}>
                         <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span className="truncate">{qFlow.title}</span>
-                      </span>
-                    ) : (
-                      <span className="text-xs text-amber-700 font-medium">No Flow Attached</span>
+                      </div>
                     )}
                   </TableCell>
 
-                  <TableCell className="whitespace-nowrap">
+                  <TableCell>
                     <button
                       type="button"
                       onClick={() => {
@@ -608,29 +624,20 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                       className="text-left group cursor-pointer hover:opacity-90 transition-opacity"
                       title="Click to edit campaign contacts"
                     >
-                      <div className="text-xs text-slate-800 font-medium flex items-center gap-1 group-hover:text-blue-600">
+                      <div className="text-xs text-slate-800 font-medium flex items-center gap-1.5 group-hover:text-blue-600">
                         <Users className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 shrink-0" />
-                        <span>{callableCount} callable</span>
-                        {dncCount > 0 && <span className="text-red-600">({dncCount} DNC)</span>}
+                        <span className="whitespace-nowrap">{totalContacts} contacts</span>
                         <Edit2 className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100 ml-0.5 shrink-0" />
                       </div>
                     </button>
                   </TableCell>
 
-                  <TableCell className="whitespace-nowrap">
-                    <div className="text-xs text-slate-700 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>{c.callingStartTime || '09:00'} - {c.callingEndTime || '18:00'}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-400">Max {c.maxConcurrentCalls || 5} concurrent</div>
-                  </TableCell>
-
-                  <TableCell className="whitespace-nowrap">
+                  <TableCell>
                     {getStatusBadge(c.status)}
                   </TableCell>
 
-                  <TableCell className="text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end gap-1.5 flex-nowrap">
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2 flex-nowrap">
                       {(s === 'DRAFT' || s === 'READY' || s === 'SCHEDULED') && (
                         <Button
                           variant="primary"
@@ -681,18 +688,6 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                           title="Restart Campaign"
                         >
                           Start
-                        </Button>
-                      )}
-                      {onLaunchSimulator && hasPermission('calls.execute') && (
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          className="text-slate-700 border-slate-300 hover:bg-slate-50 font-medium whitespace-nowrap"
-                          onClick={() => onLaunchSimulator(c.id)}
-                          leftIcon={<Phone className="w-3 h-3 text-slate-500" />}
-                          title="Test IVR Voice Flow in Simulator"
-                        >
-                          Simulator
                         </Button>
                       )}
                       <Button
@@ -998,6 +993,7 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
           ...formData,
           name: formData.name.trim(),
           targetContactIds: selectedContactIds,
+          targetGroups: [],
           contactCount: selectedContactIds.length
         };
 
@@ -1008,7 +1004,12 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
             targetContactIds: selectedContactIds
           });
           if (res.success && res.data) {
-            updatedCampaign = res.data;
+            updatedCampaign = {
+              ...res.data,
+              targetContactIds: selectedContactIds,
+              targetGroups: [],
+              contactCount: selectedContactIds.length
+            };
           }
         } catch {
           // Local fallback handled
@@ -1039,7 +1040,12 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
             contactIds: selectedContactIds
           });
         } catch {}
-        onSave(res.data);
+        onSave({
+          ...res.data,
+          targetContactIds: selectedContactIds,
+          targetGroups: [],
+          contactCount: selectedContactIds.length
+        });
       } else {
         const localCampaign: Campaign = {
           id: `camp_${Date.now()}`,
@@ -1061,6 +1067,7 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
           maxRetries: formData.maxRetries,
           retryIntervalMinutes: formData.retryIntervalMinutes,
           targetContactIds: selectedContactIds,
+          targetGroups: [],
           contactCount: selectedContactIds.length,
           createdAt: new Date().toISOString()
         };

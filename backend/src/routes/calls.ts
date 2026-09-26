@@ -86,7 +86,8 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
     const call = await client.calls.create({
       to: targetNumber,
       from: fromNumber,
-      url: webhookUrl
+      url: webhookUrl,
+      record: true
     });
 
     res.json({
@@ -97,7 +98,8 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
         to: targetNumber,
         from: fromNumber,
         direction: call.direction,
-        dateCreated: call.dateCreated
+        dateCreated: call.dateCreated,
+        record: true
       }
     });
   } catch (err: any) {
@@ -124,7 +126,8 @@ callsRouter.get('/live-status/:callSid', requirePermission('calls.view'), async 
           status: 'completed',
           duration: 18,
           to: '+64218924101',
-          from: '+17372508034'
+          from: '+17372508034',
+          recordingUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC59c3627e754f0a43addb43756a45891a/Recordings/RE_SIMULATED_TEST.mp3'
         }
       });
     }
@@ -135,6 +138,16 @@ callsRouter.get('/live-status/:callSid', requirePermission('calls.view'), async 
     const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
     const twilioCall = await client.calls(callSid).fetch();
 
+    let recordingUrl: string | undefined = undefined;
+    try {
+      const recs = await client.calls(callSid).recordings.list({ limit: 1 });
+      if (recs && recs.length > 0) {
+        recordingUrl = `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Recordings/${recs[0].sid}.mp3`;
+      }
+    } catch {
+      // Recording may still be processing
+    }
+
     return res.json({
       success: true,
       data: {
@@ -144,7 +157,8 @@ callsRouter.get('/live-status/:callSid', requirePermission('calls.view'), async 
         startTime: twilioCall.startTime,
         endTime: twilioCall.endTime,
         to: twilioCall.to,
-        from: twilioCall.from
+        from: twilioCall.from,
+        recordingUrl
       }
     });
   } catch (err) {

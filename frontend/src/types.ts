@@ -409,6 +409,8 @@ export interface CallLog {
   startedAt: string;
   endedAt?: string;
   durationSeconds: number;
+  costNzd?: number;
+  recordingUrl?: string | null;
   responses: CallResponseRecord[];
   transcript: Array<{
     speaker: 'system' | 'user';

@@ -39,11 +39,51 @@ function AculaWorkspace() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Deleted Contact Tracking to prevent resurrection on refresh or sync
+  const DELETED_CONTACTS_KEY = 'ak_accounting_deleted_contact_ids';
+
+  const getDeletedContactIds = (): Set<string> => {
+    try {
+      const raw = localStorage.getItem(DELETED_CONTACTS_KEY);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  };
+
+  const recordDeletedContactId = (id: string) => {
+    try {
+      const ids = getDeletedContactIds();
+      ids.add(id);
+      localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify(Array.from(ids)));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const unmarkDeletedContactId = (id: string) => {
+    try {
+      const ids = getDeletedContactIds();
+      ids.delete(id);
+      localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify(Array.from(ids)));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Clean legacy dummy storage and load initial state
   const loadCleanStorage = <T extends { id?: string }>(key: string, fallback: T[]): T[] => {
     try {
       const raw = localStorage.getItem(key);
-      if (!raw) return fallback;
+      const isContactKey = key === 'ak_accounting_contacts';
+      const deletedIds = isContactKey ? getDeletedContactIds() : new Set<string>();
+
+      if (!raw) {
+        if (isContactKey) {
+          return fallback.filter((f) => !f.id || !deletedIds.has(f.id));
+        }
+        return fallback;
+      }
       if (
         raw.includes('cmp_itr_deadline') ||
         raw.includes('ABC Tax Services') ||
@@ -53,21 +93,36 @@ function AculaWorkspace() {
         raw.includes('cmp_aug_gst')
       ) {
         localStorage.removeItem(key);
-        return fallback;
+        return isContactKey ? fallback.filter((f) => !f.id || !deletedIds.has(f.id)) : fallback;
       }
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed) || parsed.length === 0) {
-        return fallback;
+        return isContactKey ? fallback.filter((f) => !f.id || !deletedIds.has(f.id)) : fallback;
       }
-      // Ensure all standard initial flows and items are present
-      const existingIds = new Set(parsed.map((item: any) => item.id).filter(Boolean));
+
+      // If contacts, filter out any deleted IDs and do not re-insert missing initial contacts
+      if (isContactKey) {
+        return parsed.filter((item: any) => !item.id || !deletedIds.has(item.id));
+      }
+
+      // For questionnaires and campaigns, ensure all standard initial flows and items are present
+      const normalizedParsed = key === 'ak_accounting_campaigns'
+        ? parsed.map((item: any) => {
+            if (item.id === 'cmp_nz_ird_verification' && (!item.name || item.name.startsWith('Campaign cmp_'))) {
+              return { ...item, name: 'Inland Revenue ID & Security Verification' };
+            }
+            return item;
+          })
+        : parsed;
+
+      const existingIds = new Set(normalizedParsed.map((item: any) => item.id).filter(Boolean));
       const missingFromFallback = fallback.filter((f) => f.id && !existingIds.has(f.id));
       if (missingFromFallback.length > 0) {
-        const merged = [...parsed, ...missingFromFallback];
+        const merged = [...normalizedParsed, ...missingFromFallback];
         localStorage.setItem(key, JSON.stringify(merged));
         return merged;
       }
-      return parsed;
+      return normalizedParsed;
     } catch {
       return fallback;
     }
@@ -117,11 +172,14 @@ function AculaWorkspace() {
       try {
         const res = await api.getContacts({ limit: 100 });
         if (isMounted && res.success && res.data?.contacts && res.data.contacts.length > 0) {
-          const backendContacts = res.data.contacts;
+          const deletedIds = getDeletedContactIds();
+          const backendContacts = res.data.contacts.filter((c) => !deletedIds.has(c.id));
           setContacts((prev) => {
-            const backendIds = new Set(backendContacts.map((c) => c.id));
-            const localOnly = prev.filter((c) => !backendIds.has(c.id));
-            const merged = [...backendContacts, ...localOnly];
+            const currentDeleted = getDeletedContactIds();
+            const validBackend = backendContacts.filter((c) => !currentDeleted.has(c.id));
+            const backendIds = new Set(validBackend.map((c) => c.id));
+            const localOnly = prev.filter((c) => !backendIds.has(c.id) && !currentDeleted.has(c.id));
+            const merged = [...validBackend, ...localOnly];
             localStorage.setItem('ak_accounting_contacts', JSON.stringify(merged));
             return merged;
           });
@@ -182,6 +240,7 @@ function AculaWorkspace() {
   };
 
   const handleResetPracticeData = () => {
+    localStorage.removeItem(DELETED_CONTACTS_KEY);
     setQuestionnaires(INITIAL_QUESTIONNAIRES);
     setContacts(INITIAL_CONTACTS);
     setCampaigns(INITIAL_CAMPAIGNS);
@@ -193,25 +252,55 @@ function AculaWorkspace() {
 
   // Contact Handlers
   const handleSaveContact = (c: Contact) => {
+    unmarkDeletedContactId(c.id);
     const exists = contacts.some((item) => item.id === c.id);
     if (exists) {
-      setContacts((prev) => prev.map((item) => (item.id === c.id ? c : item)));
+      setContacts((prev) => {
+        const updated = prev.map((item) => (item.id === c.id ? c : item));
+        localStorage.setItem('ak_accounting_contacts', JSON.stringify(updated));
+        return updated;
+      });
       logAuditEvent('Contact Updated', 'Contact', `Updated client details for ${c.name} (${c.companyName}).`);
     } else {
-      setContacts((prev) => [c, ...prev]);
+      setContacts((prev) => {
+        const updated = [c, ...prev.filter((item) => item.id !== c.id)];
+        localStorage.setItem('ak_accounting_contacts', JSON.stringify(updated));
+        return updated;
+      });
       logAuditEvent('Contact Created', 'Contact', `Enrolled new contact ${c.name} (${c.phoneNumber}).`);
     }
   };
 
-  const handleDeleteContact = (id: string) => {
+  const handleDeleteContact = async (id: string) => {
     const c = contacts.find((x) => x.id === id);
-    setContacts((prev) => prev.filter((item) => item.id !== id));
+    recordDeletedContactId(id);
+    setContacts((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      localStorage.setItem('ak_accounting_contacts', JSON.stringify(updated));
+      return updated;
+    });
     logAuditEvent('Contact Deleted', 'Contact', `Deleted contact record ${c?.name || id}.`);
+
+    try {
+      await api.deleteContact(id);
+    } catch (err) {
+      console.warn('Could not delete contact on backend API:', err);
+    }
   };
 
   const handleImportContacts = (imported: Contact[]) => {
-    setContacts((prev) => [...imported, ...prev]);
-    logAuditEvent('Batch Contacts Imported', 'Contact', `Imported ${imported.length} new client contacts into practice directory.`);
+    const deletedIds = getDeletedContactIds();
+    const validImported = imported.filter((c) => !deletedIds.has(c.id));
+    setContacts((prev) => {
+      const prevMap = new Map(prev.filter((c) => !deletedIds.has(c.id)).map((c) => [c.id, c]));
+      validImported.forEach((c) => {
+        prevMap.set(c.id, c);
+      });
+      const merged = Array.from(prevMap.values());
+      localStorage.setItem('ak_accounting_contacts', JSON.stringify(merged));
+      return merged;
+    });
+    logAuditEvent('Batch Contacts Imported', 'Contact', `Imported ${validImported.length} client contacts into practice directory.`);
   };
 
   // Campaign Handlers
