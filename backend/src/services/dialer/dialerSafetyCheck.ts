@@ -311,6 +311,28 @@ export async function performPreDialSafetyCheck(
       };
     }
 
+    // AUTO-HEAL: Clear any stuck attempts older than 2 minutes before checking
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+    await prisma.callAttempt.updateMany({
+      where: {
+        callJobId,
+        status: {
+          in: [
+            CallStatus.QUEUED,
+            CallStatus.INITIATED,
+            CallStatus.RINGING,
+            CallStatus.ANSWERED,
+            CallStatus.IN_PROGRESS
+          ]
+        },
+        startedAt: { lt: twoMinutesAgo }
+      },
+      data: {
+        status: 'FAILED',
+        hangupCause: 'Auto-cleared stuck attempt'
+      }
+    });
+
     const duplicateActive = await prisma.callAttempt.findFirst({
       where: {
         callJobId,

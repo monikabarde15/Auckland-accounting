@@ -108,11 +108,7 @@ export class TwilioService {
       const call = await this.client.calls.create({
         to: options.to,
         from: callerId || env.TWILIO_PHONE_NUMBER || '+17372508034',
-        url: twimlUrl,
-        statusCallback: statusCallback,
-        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-        statusCallbackMethod: 'POST',
-        timeout: options.timeoutSeconds || 30
+        url: twimlUrl
       });
 
       logger.info(

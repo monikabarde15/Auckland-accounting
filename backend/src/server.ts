@@ -12,6 +12,18 @@ const server = app.listen(env.PORT, () => {
     env: env.NODE_ENV,
     url: `http://localhost:${env.PORT}`
   }, `🚀 Acula Express REST API listening on port ${env.PORT}`);
+
+  if (env.NODE_ENV !== 'test') {
+    // Auto-start the Call Worker for local dev convenience
+    import('./workers/callWorker.js')
+      .then(({ callWorker }) => {
+        logger.info('Auto-starting CallWorker from API server...');
+        callWorker.start().catch((err: any) => logger.error({ err }, 'Failed to start CallWorker'));
+      })
+      .catch((err: any) => {
+        logger.warn({ err }, 'Could not import CallWorker');
+      });
+  }
 });
 
 // Graceful Shutdown

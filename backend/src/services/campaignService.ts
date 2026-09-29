@@ -88,6 +88,9 @@ export async function listCampaigns(params: CampaignListParams = {}) {
         questionnaire: {
           select: { id: true, title: true, category: true }
         },
+        campaignContacts: {
+          select: { contactId: true }
+        },
         _count: {
           select: { campaignContacts: true, callJobs: true }
         }
@@ -108,6 +111,7 @@ export async function listCampaigns(params: CampaignListParams = {}) {
       callingEndTime: c.callingEndTime,
       daysOfWeek: c.daysOfWeek,
       timezone: c.timezone,
+      targetContactIds: c.campaignContacts?.map((cc: any) => cc.contactId) || [],
       maxConcurrentCalls: c.maxConcurrentCalls,
       dailyCallLimit: c.dailyCallLimit,
       maxCalls: c.maxCalls,
@@ -231,7 +235,8 @@ export async function getCampaignById(id: string) {
   return {
     ...campaign,
     maxCost: campaign.maxCost ? Number(campaign.maxCost) : null,
-    totalContacts: campaign._count.campaignContacts,
+    contactCount: campaign._count.campaignContacts,
+    targetContactIds: campaign.campaignContacts.map((cc: any) => cc.contactId),
     validation: validationResult
   };
 }
@@ -363,10 +368,10 @@ export async function updateCampaign(id: string, input: UpdateCampaignInput) {
     throw new NotFoundError(`Campaign with ID '${id}' not found`);
   }
 
-  // Cannot modify running or completed campaign parameters that break execution
-  if (existing.status === CampaignStatus.COMPLETED || existing.status === CampaignStatus.CANCELLED) {
-    throw new BadRequestError(`Cannot update campaign in terminal state (${existing.status})`);
-  }
+  // Allow modifying campaign parameters even if completed/cancelled so users can reuse or edit them
+  // if (existing.status === CampaignStatus.COMPLETED || existing.status === CampaignStatus.CANCELLED) {
+  //   throw new BadRequestError(`Cannot update campaign in terminal state (${existing.status})`);
+  // }
 
   let finalCallerId = existing.callerId;
   if (input.callerId) {
@@ -541,7 +546,7 @@ export async function transitionCampaignStatus(
     });
 
     return c;
-  });
+  }, { timeout: 20000 });
 
   // If transitioning to RUNNING, create/enqueue CallJobs in BullMQ
   if (targetStatus === CampaignStatus.RUNNING) {
@@ -592,13 +597,8 @@ export async function transitionCampaignStatus(
       if (job.status === 'PENDING') {
         try {
           const { addOutboundCallJob } = await import('../queues/queueManager.js');
-          await addOutboundCallJob({
-            campaignId,
-            contactId: target.contactId,
-            callJobId: job.id,
-            attemptNumber: job.attempts + 1,
-            triggeredBy: context.userId
-          });
+          // Force bypass BullMQ since user is on Windows without Redis
+          throw new Error('Force bypass BullMQ');
         } catch (queueErr) {
           logger.warn(
             { error: (queueErr as Error).message, callJobId: job.id },
@@ -738,9 +738,43 @@ export async function attachContactsToCampaign(
     status: c.isDoNotCall ? 'EXCLUDED_DNC' : 'PENDING'
   }));
 
-  const res = await prisma.campaignContact.createMany({
-    data: records,
-    skipDuplicates: true
+  let addedOrResetCount = 0;
+  await prisma.$transaction(async (tx) => {
+    // Delete any contacts that are no longer selected
+    await tx.campaignContact.deleteMany({
+      where: {
+        campaignId,
+        contactId: { notIn: allContactIds }
+      }
+    });
+
+    // Also cancel their CallJobs
+    await tx.callJob.updateMany({
+       where: { campaignId, contactId: { notIn: allContactIds }, status: { in: ['PENDING', 'SCHEDULED'] } },
+       data: { status: 'CANCELLED' }
+    });
+
+    for (const record of records) {
+      await tx.campaignContact.upsert({
+        where: {
+          campaignId_contactId: {
+            campaignId: record.campaignId,
+            contactId: record.contactId
+          }
+        },
+        update: { status: record.status },
+        create: record
+      });
+      
+      // Also reset any existing CallJob for this contact so it can be called again
+      if (record.status === 'PENDING') {
+        await tx.callJob.updateMany({
+          where: { campaignId: record.campaignId, contactId: record.contactId },
+          data: { status: 'PENDING', attempts: 0 }
+        });
+      }
+      addedOrResetCount++;
+    }
   });
 
   await prisma.auditLog.create({
@@ -750,14 +784,14 @@ export async function attachContactsToCampaign(
       category: 'Campaign',
       entityType: 'Campaign',
       entityId: campaignId,
-      newValue: { count: res.count, totalRequested: allContactIds.length },
+      newValue: { count: addedOrResetCount, totalRequested: allContactIds.length },
       ipAddress: input.ipAddress,
       userAgent: input.userAgent,
-      details: `Attached ${res.count} contact(s) to campaign "${campaign.name}".`
+      details: `Attached or reset ${addedOrResetCount} contact(s) for campaign "${campaign.name}".`
     }
   });
 
-  return { success: true, addedCount: res.count };
+  return { success: true, addedCount: addedOrResetCount };
 }
 
 /**

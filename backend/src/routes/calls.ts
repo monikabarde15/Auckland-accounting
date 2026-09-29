@@ -94,7 +94,11 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
               }
             }
           });
-          if (camp?.questionnaire?.questions?.[0]?.questionText) {
+          if (camp?.description && camp?.questionnaire?.questions?.[0]?.questionText) {
+            initialPrompt = `${camp.description}. ${camp.questionnaire.questions[0].questionText}`;
+          } else if (camp?.description) {
+            initialPrompt = camp.description;
+          } else if (camp?.questionnaire?.questions?.[0]?.questionText) {
             initialPrompt = camp.questionnaire.questions[0].questionText;
           }
         }
@@ -130,19 +134,17 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
 
     const inlineTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria-Neural" language="en-NZ">${escapedPrompt}</Say>
-  <Gather input="dtmf" numDigits="1" timeout="8">
-    <Say voice="Polly.Aria-Neural" language="en-NZ">Please press 1 to confirm, or press 2 to request a callback from your accountant.</Say>
-  </Gather>
-  <Say voice="Polly.Aria-Neural" language="en-NZ">Thank you for your response. Auckland Accounting has recorded your submission. Have a wonderful day.</Say>
-  <Hangup/>
+  <Say language="hi-IN">${escapedPrompt}</Say>
 </Response>`;
 
     try {
+      const baseUrl = env.TWILIO_WEBHOOK_BASE_URL || 'https://hoped-side-right-tells.trycloudflare.com';
+      const webhookUrl = `${baseUrl}/api/voice/twiml?prompt=` + encodeURIComponent(speakText);
+
       const call = await client.calls.create({
         to: targetNumber,
         from: fromNumber,
-        twiml: inlineTwiml
+        url: webhookUrl
       });
 
       return res.json({
@@ -153,7 +155,8 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
           to: targetNumber,
           from: fromNumber,
           direction: call.direction,
-          dateCreated: call.dateCreated
+          dateCreated: call.dateCreated,
+          scriptPlayed: speakText
         }
       });
     } catch (twilioErr: any) {

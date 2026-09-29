@@ -35,15 +35,13 @@ voiceRouter.all('/twiml', async (req: Request, res: Response) => {
     // 1. Direct dynamic test call with custom campaign prompt
     if (prompt || (!callAttemptId && campaignId)) {
       const speakText = prompt || 'Kia ora. This is an automated message from Auckland Accounting regarding your account.';
-      const actionUrl = `/api/voice/gather?campaignId=${encodeURIComponent(campaignId || '')}`;
+      const baseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || `https://${req.get('host')}`;
+      const actionUrl = `${baseUrl}/api/voice/gather?campaignId=${encodeURIComponent(campaignId || '')}`;
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria-Neural" language="en-NZ">${speakText.replace(/[<>&]/g, '')}</Say>
   <Gather numDigits="1" action="${actionUrl}" method="POST" timeout="10">
-    <Say voice="Polly.Aria-Neural" language="en-NZ">Please press 1 to confirm, or 2 to decline.</Say>
+    <Say>${speakText.replace(/[<>&]/g, '')}</Say>
   </Gather>
-  <Say voice="Polly.Aria-Neural" language="en-NZ">We did not receive any input. Thank you and goodbye.</Say>
-  <Hangup/>
 </Response>`;
       res.type('text/xml').send(xml);
       return;

@@ -102,9 +102,16 @@ export async function renderQuestionTwiml(
   }
 
   const context = buildContactContext(attempt.callJob.contact);
-  const promptText = interpolateVariables(question.questionText, context);
+  let promptText = interpolateVariables(question.questionText, context);
+  
+  // Prepend campaign script/description if this is the first question
+  if (question.orderNo === 1 && attempt.callJob.campaign.description) {
+    const introText = interpolateVariables(attempt.callJob.campaign.description, context);
+    promptText = `${introText}. ${promptText}`;
+  }
+
   const webhookBase = (env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL).replace(/\/+$/, '');
-  const gatherActionUrl = `${webhookBase}/api/voice/gather?callAttemptId=${encodeURIComponent(callAttemptId)}&questionId=${encodeURIComponent(questionId)}`;
+  const gatherActionUrl = `${webhookBase}/api/voice/gather?callAttemptId=${encodeURIComponent(callAttemptId)}&amp;questionId=${encodeURIComponent(questionId)}`;
 
   const escapeXml = (unsafe: string) =>
     unsafe.replace(/[<>&'"]/g, (c) => {
@@ -124,7 +131,7 @@ export async function renderQuestionTwiml(
   if (question.type === QuestionType.MESSAGE_ONLY) {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria" language="en-NZ">${escapedPrompt}</Say>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">${escapedPrompt}</Say>
   <Hangup/>
 </Response>`;
   }
@@ -134,7 +141,7 @@ export async function renderQuestionTwiml(
     const transferNumber = question.transferPhoneNumber || env.TWILIO_PHONE_NUMBER || '+17372508034';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria" language="en-NZ">${escapedPrompt}</Say>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">${escapedPrompt}</Say>
   <Dial callerId="${escapeXml(attempt.callJob.campaign.callerId)}" action="${webhookBase}/api/voice/status?callAttemptId=${encodeURIComponent(callAttemptId)}">${escapeXml(transferNumber)}</Dial>
 </Response>`;
   }
@@ -146,9 +153,9 @@ export async function renderQuestionTwiml(
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="dtmf" numDigits="${maxDigits}" finishOnKey="${escapeXml(finishKey)}" timeout="${question.timeoutSeconds || 8}" action="${gatherActionUrl}" method="POST">
-    <Say voice="Polly.Aria" language="en-NZ">${escapedPrompt}</Say>
+    <Say voice="Polly.Aria-Neural" language="en-NZ">${escapedPrompt}</Say>
   </Gather>
-  <Say voice="Polly.Aria" language="en-NZ">We did not receive your input. Goodbye.</Say>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">We did not receive your input. Goodbye.</Say>
   <Hangup/>
 </Response>`;
   }
@@ -158,9 +165,9 @@ export async function renderQuestionTwiml(
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="dtmf" numDigits="${numDigits}" timeout="${question.timeoutSeconds || 6}" action="${gatherActionUrl}" method="POST">
-    <Say voice="Polly.Aria" language="en-NZ">${escapedPrompt}</Say>
+    <Say voice="Polly.Aria-Neural" language="en-NZ">${escapedPrompt}</Say>
   </Gather>
-  <Say voice="Polly.Aria" language="en-NZ">We did not receive your response. Goodbye.</Say>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">We did not receive your response. Goodbye.</Say>
   <Hangup/>
 </Response>`;
 }
@@ -234,7 +241,7 @@ export async function processGatheredResponse(
   if (!matchedOption && question.type !== QuestionType.NUMERIC && question.type !== QuestionType.RATING) {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria" language="en-NZ">That is an invalid selection. Let us try once more.</Say>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">That is an invalid selection. Let us try once more.</Say>
   <Redirect method="POST">${webhookBase}/api/voice/twiml?callAttemptId=${encodeURIComponent(callAttemptId)}&amp;questionId=${encodeURIComponent(questionId)}</Redirect>
 </Response>`;
   }
@@ -246,7 +253,7 @@ export async function processGatheredResponse(
   if (nextAction === NextAction.END_CALL) {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria" language="en-NZ">Thank you for your response. Have a great day. Goodbye.</Say>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">Thank you for your response. Have a great day. Goodbye.</Say>
   <Hangup/>
 </Response>`;
   }
@@ -255,7 +262,7 @@ export async function processGatheredResponse(
     const transferNumber = question.transferPhoneNumber || env.TWILIO_PHONE_NUMBER || '+17372508034';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria" language="en-NZ">Transferring you now. Please hold.</Say>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">Transferring you now. Please hold.</Say>
   <Dial callerId="${attempt.callJob.campaign.callerId}">${transferNumber}</Dial>
 </Response>`;
   }
@@ -281,7 +288,7 @@ export async function processGatheredResponse(
   // End of questionnaire
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria" language="en-NZ">Thank you for completing this survey with Auckland Accounting. Goodbye.</Say>
+  <Say voice="Polly.Aria-Neural" language="en-NZ">Thank you for completing this survey with Auckland Accounting. Goodbye.</Say>
   <Hangup/>
 </Response>`;
 }
