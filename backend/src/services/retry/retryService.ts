@@ -44,6 +44,7 @@ export async function evaluateAndScheduleRetry(
       where: { id: callJob.id },
       data: { status: CallJobStatus.COMPLETED }
     });
+    await checkCampaignCompletion(callJob.campaignId);
     return { shouldRetry: false, reason: 'Call completed successfully' };
   }
 
@@ -53,6 +54,7 @@ export async function evaluateAndScheduleRetry(
       where: { id: callJob.id },
       data: { status: CallJobStatus.FAILED }
     });
+    await checkCampaignCompletion(callJob.campaignId);
     return { shouldRetry: false, reason: 'Retries are disabled for this campaign' };
   }
 
@@ -62,6 +64,7 @@ export async function evaluateAndScheduleRetry(
       where: { id: callJob.id },
       data: { status: CallJobStatus.CANCELLED }
     });
+    await checkCampaignCompletion(callJob.campaignId);
     return { shouldRetry: false, reason: `Campaign is in terminal state (${campaign.status})` };
   }
 
@@ -71,6 +74,7 @@ export async function evaluateAndScheduleRetry(
       where: { id: callJob.id },
       data: { status: CallJobStatus.CANCELLED }
     });
+    await checkCampaignCompletion(callJob.campaignId);
     return { shouldRetry: false, reason: 'Contact is suppressed or lacks explicit GRANTED consent' };
   }
 
@@ -88,6 +92,7 @@ export async function evaluateAndScheduleRetry(
       { callJobId: callJob.id, currentAttempts, maxRetries },
       'Call job reached maximum retry attempts'
     );
+    await checkCampaignCompletion(callJob.campaignId);
     return { shouldRetry: false, reason: `Reached maximum attempts limit (${currentAttempts}/${maxRetries})` };
   }
 
@@ -124,6 +129,7 @@ export async function evaluateAndScheduleRetry(
       where: { id: callJob.id },
       data: { status: CallJobStatus.FAILED }
     });
+    await checkCampaignCompletion(callJob.campaignId);
     return { shouldRetry: false, reason: `Outcome (${finalStatus}) is not configured for retry in campaign policy` };
   }
 
@@ -180,3 +186,28 @@ export async function evaluateAndScheduleRetry(
     scheduledRetryAt
   };
 }
+
+/**
+ * Evaluates whether all jobs in a campaign are in a terminal state,
+ * and if so, marks the campaign as COMPLETED.
+ */
+async function checkCampaignCompletion(campaignId: string) {
+  const pendingJobs = await prisma.callJob.count({
+    where: {
+      campaignId,
+      status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] }
+    }
+  });
+
+  if (pendingJobs === 0) {
+    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+    if (campaign && campaign.status === 'RUNNING') {
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'COMPLETED' }
+      });
+      logger.info({ campaignId }, 'All jobs completed. Campaign marked as COMPLETED.');
+    }
+  }
+}
+

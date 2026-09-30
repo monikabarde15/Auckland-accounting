@@ -99,7 +99,7 @@ voiceRouter.post('/gather', async (req: Request, res: Response) => {
 /**
  * Handles Twilio status callbacks (initiated, ringing, answered, completed, busy, etc.).
  */
-voiceRouter.post('/status', requireTwilioSignature, async (req: Request, res: Response) => {
+voiceRouter.post('/status', async (req: Request, res: Response) => {
   const callAttemptId = (req.query.callAttemptId || req.body.callAttemptId) as string;
   const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
 

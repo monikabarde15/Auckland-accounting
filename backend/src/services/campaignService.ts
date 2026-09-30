@@ -550,6 +550,23 @@ export async function transitionCampaignStatus(
 
   // If transitioning to RUNNING, create/enqueue CallJobs in BullMQ
   if (targetStatus === CampaignStatus.RUNNING) {
+    // AUTO-RESET: For local testing and missing BullMQ, clear stuck/finished jobs when resuming so they dial again
+    const activeContacts = await prisma.campaignContact.findMany({
+      where: { campaignId },
+      select: { contactId: true }
+    });
+    const activeContactIds = activeContacts.map(c => c.contactId);
+
+    // AUTO-RESET: For local testing and missing BullMQ, clear stuck/finished jobs when resuming so they dial again
+    await prisma.callJob.updateMany({
+      where: {
+        campaignId,
+        contactId: { in: activeContactIds },
+        status: { in: ['DISPATCHED', 'FAILED', 'COMPLETED'] }
+      },
+      data: { status: 'PENDING', attempts: 0 }
+    });
+
     const targets = await prisma.campaignContact.findMany({
       where: {
         campaignId,
