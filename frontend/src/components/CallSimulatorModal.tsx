@@ -234,7 +234,7 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
               transitionToQuestion(question.defaultNextQuestionId || 'END');
             }, 1200);
           } else if (question.type === 'transfer') {
-            setStatusMessage(`Transferring call to (${question.transferPhoneNumber || '+1 737 250 8034'})`);
+            setStatusMessage(question.transferPhoneNumber ? `Transferring call to (${question.transferPhoneNumber})` : 'Transferring call to assigned accountant');
             setTimeout(() => {
               endCall('transferred', 'Call bridged to senior tax advisory queue.');
             }, 2500);

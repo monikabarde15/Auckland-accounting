@@ -42,7 +42,7 @@ export const INITIAL_QUESTIONNAIRES: Questionnaire[] = [
         name: 'Step 3: Transfer to Assigned Accountant',
         type: 'transfer',
         promptText: 'Understood. Transferring your call to your assigned accountant {assigned_accountant} now.',
-        transferPhoneNumber: '+1 737 250 8034',
+        transferPhoneNumber: '',
         options: [],
         timeoutSeconds: 6,
         maxRetries: 1
@@ -107,7 +107,7 @@ export const INITIAL_QUESTIONNAIRES: Questionnaire[] = [
         name: 'Step 4: Billing Team Transfer',
         type: 'transfer',
         promptText: 'Connecting you with the practice accounts receivable desk now.',
-        transferPhoneNumber: '+1 737 250 8034',
+        transferPhoneNumber: '',
         options: [],
         timeoutSeconds: 6,
         maxRetries: 1
@@ -204,7 +204,7 @@ export const INITIAL_QUESTIONNAIRES: Questionnaire[] = [
         name: 'Step 2: Service Recovery Routing',
         type: 'transfer',
         promptText: 'We apologize that we did not meet your expectations. Routing your call to our practice client relations manager now.',
-        transferPhoneNumber: '+1 737 250 8034',
+        transferPhoneNumber: '',
         options: [],
         timeoutSeconds: 6,
         maxRetries: 1
@@ -296,7 +296,7 @@ export const INITIAL_QUESTIONNAIRES: Questionnaire[] = [
         name: 'Step 5: Staff Transfer (Transfer)',
         type: 'transfer',
         promptText: 'Transferring your call to your assigned accountant {assigned_accountant} now.',
-        transferPhoneNumber: '+1 737 250 8034',
+        transferPhoneNumber: '',
         options: [],
         timeoutSeconds: 6,
         maxRetries: 1
@@ -395,7 +395,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     questionnaireId: 'qnr_yes_no_gst',
     targetGroups: ['GST Tax Filings'],
     targetContactIds: [],
-    callerId: '+1 737 250 8034',
+    callerId: '',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
       startTime: '09:00',
@@ -424,7 +424,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     questionnaireId: 'qnr_multiple_choice_fee',
     targetGroups: ['Fee Reminders'],
     targetContactIds: [],
-    callerId: '+1 737 250 8034',
+    callerId: '',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
       startTime: '09:30',
@@ -453,7 +453,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     questionnaireId: 'qnr_numeric_ird_verify',
     targetGroups: ['Corporate Clients'],
     targetContactIds: [],
-    callerId: '+1 737 250 8034',
+    callerId: '',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
       startTime: '09:00',
@@ -482,7 +482,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     questionnaireId: 'qnr_rating_csat_survey',
     targetGroups: ['Customer Survey'],
     targetContactIds: [],
-    callerId: '+1 737 250 8034',
+    callerId: '',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
       startTime: '10:00',
@@ -511,7 +511,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     questionnaireId: 'qnr_master_all_input_types',
     targetGroups: ['Corporate Clients'],
     targetContactIds: [],
-    callerId: '+1 737 250 8034',
+    callerId: '',
     schedule: {
       startDate: new Date().toISOString().split('T')[0],
       startTime: '09:00',

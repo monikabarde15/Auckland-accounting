@@ -178,7 +178,7 @@ export async function getCampaignById(id: string) {
             name: defaultName,
             description: 'Practice outbound calling campaign',
             status: CampaignStatus.DRAFT,
-            callerId: env.TWILIO_PHONE_NUMBER || '+17372508034',
+            callerId: env.TWILIO_PHONE_NUMBER || '',
             callerName: 'Auckland Accounting',
             questionnaireId: firstQ?.id || null
           }
@@ -248,7 +248,7 @@ export async function createCampaign(input: CreateCampaignInput) {
   const {
     name,
     description,
-    callerId = env.TWILIO_PHONE_NUMBER || '+17372508034',
+    callerId = env.TWILIO_PHONE_NUMBER || '',
     callerName = 'Auckland Accounting',
     questionnaireId,
     callingStartTime = '09:00',
@@ -450,7 +450,7 @@ export async function transitionCampaignStatus(
           name: defaultName,
           description: 'Practice outbound calling campaign',
           status: CampaignStatus.DRAFT,
-          callerId: env.TWILIO_PHONE_NUMBER || '+17372508034',
+          callerId: env.TWILIO_PHONE_NUMBER || '',
           callerName: 'Auckland Accounting',
           questionnaireId: firstQ?.id || null,
           createdById: context.userId

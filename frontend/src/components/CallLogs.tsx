@@ -149,7 +149,7 @@ export const CallLogs: React.FC<CallLogsProps> = ({ callLogs: fallbackCallLogs }
               campaign: {
                 id: localMatch.campaignId,
                 name: localMatch.campaignName,
-                callerId: '+1 737 250 8034'
+                callerId: ''
               },
               responses: localMatch.responses?.map((r, idx) => ({
                 id: `resp_${idx}`,
@@ -632,7 +632,7 @@ export const CallLogs: React.FC<CallLogsProps> = ({ callLogs: fallbackCallLogs }
                 <div className="flex items-center justify-between text-slate-800 font-medium">
                   <span>{selectedCallDetail.campaign?.name || 'Default Outbound Flow'}</span>
                   <span className="font-mono text-xs text-slate-600">
-                    CLI: {selectedCallDetail.campaign?.callerId || '+1 737 250 8034'}
+                    {selectedCallDetail.campaign?.callerId ? `CLI: ${selectedCallDetail.campaign.callerId}` : ''}
                   </span>
                 </div>
               </div>

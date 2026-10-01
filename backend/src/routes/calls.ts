@@ -72,7 +72,11 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
   try {
     const body = testLiveCallSchema.parse(req.body);
     const targetNumber = body.phoneNumber.trim();
-    const fromNumber = (body.callerId || env.TWILIO_PHONE_NUMBER || '+17372508034').trim();
+    const fromNumber = (env.TWILIO_PHONE_NUMBER || body.callerId || '').trim();
+
+    if (!fromNumber) {
+      throw new BadRequestError('Twilio Phone Number (TWILIO_PHONE_NUMBER) is not configured in environment variables.');
+    }
 
     if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) {
       throw new BadRequestError('Twilio credentials (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN) are not configured on server.');
@@ -138,14 +142,25 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
 </Response>`;
 
     try {
+<<<<<<< HEAD
       const baseUrl = env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL || 'https://auckland-accounting.onrender.com';
       const webhookUrl = `${baseUrl}/api/voice/twiml?prompt=` + encodeURIComponent(speakText);
 
       const call = await client.calls.create({
+=======
+      const callOptions: any = {
+>>>>>>> 37a5b0a (twillio credentials changed)
         to: targetNumber,
-        from: fromNumber,
-        url: webhookUrl
-      });
+        from: fromNumber
+      };
+
+      if (env.TWILIO_WEBHOOK_BASE_URL) {
+        callOptions.url = `${env.TWILIO_WEBHOOK_BASE_URL}/api/voice/twiml?prompt=` + encodeURIComponent(speakText);
+      } else {
+        callOptions.twiml = inlineTwiml;
+      }
+
+      const call = await client.calls.create(callOptions);
 
       return res.json({
         success: true,
@@ -197,7 +212,7 @@ callsRouter.get('/live-status/:callSid', requirePermission('calls.view'), async 
           status: 'completed',
           duration: 18,
           to: '+64218924101',
-          from: '+17372508034',
+          from: env.TWILIO_PHONE_NUMBER || '+6498370000',
           recordingUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC59c3627e754f0a43addb43756a45891a/Recordings/RE_SIMULATED_TEST.mp3'
         }
       });

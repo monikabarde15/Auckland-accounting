@@ -33,7 +33,7 @@ export class TwilioService {
     this.isLiveEnabled = env.ENABLE_LIVE_CALLING;
     this.accountSid = env.TWILIO_ACCOUNT_SID;
     this.authToken = env.TWILIO_AUTH_TOKEN;
-    this.defaultCallerId = env.TWILIO_PHONE_NUMBER || '+17372508034';
+    this.defaultCallerId = env.TWILIO_PHONE_NUMBER || '';
     this.webhookBaseUrl = env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL;
 
     if (this.isLiveEnabled) {
@@ -61,7 +61,7 @@ export class TwilioService {
    * Creates an outbound call through Twilio or simulated provider.
    */
   public async createOutboundCall(options: CreateCallOptions): Promise<CreateCallResult> {
-    const callerId = options.from || this.defaultCallerId;
+    const callerId = env.TWILIO_PHONE_NUMBER || options.from || this.defaultCallerId;
     const webhookBase = this.webhookBaseUrl.replace(/\/+$/, '');
     const twimlUrl = options.twimlUrl || `${webhookBase}/api/voice/twiml?callAttemptId=${encodeURIComponent(options.callAttemptId)}`;
     const statusCallback = options.statusCallbackUrl || `${webhookBase}/api/voice/status?callAttemptId=${encodeURIComponent(options.callAttemptId)}`;
@@ -100,14 +100,14 @@ export class TwilioService {
     }
 
     try {
-      logger.info(
-        { to: options.to, callerId, callAttemptId: options.callAttemptId },
-        '[LIVE TWILIO] Creating real PSTN outbound call'
-      );
+      const fromNumber = callerId || env.TWILIO_PHONE_NUMBER || this.defaultCallerId;
+      if (!fromNumber) {
+        throw new Error('Twilio caller ID (TWILIO_PHONE_NUMBER) is not configured.');
+      }
 
       const call = await this.client.calls.create({
         to: options.to,
-        from: callerId || env.TWILIO_PHONE_NUMBER || '+17372508034',
+        from: fromNumber,
         url: twimlUrl,
         statusCallback: statusCallback,
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed']

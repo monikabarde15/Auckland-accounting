@@ -108,10 +108,10 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
   // Active Twilio Caller ID
   const rawCallerId = campaign.callerId || '';
   const displayCallerId =
-    rawCallerId && !rawCallerId.includes('837 0000') && !rawCallerId.includes('8370000')
+    rawCallerId && !rawCallerId.includes('837 0000') && !rawCallerId.includes('8370000') && !rawCallerId.includes('7372508034') && !rawCallerId.includes('737 250 8034')
       ? rawCallerId
-      : '+1 737 250 8034';
-  const dialCallerId = displayCallerId.replace(/[\s\-\(\)]/g, '');
+      : (campaign.callerId || '');
+  const dialCallerId = displayCallerId ? displayCallerId.replace(/[\s\-\(\)]/g, '') : undefined;
 
   // Initialize queue items (all contacts queued without DNC suppression) and begin auto-dialing
   useEffect(() => {

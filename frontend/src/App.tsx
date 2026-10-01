@@ -150,9 +150,7 @@ function AculaWorkspace() {
 
   // Simulator Modal State
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
-  const [simulatorQuestionnaire, setSimulatorQuestionnaire] = useState<Questionnaire | undefined>(() => questionnaires[0]);
-  const [simulatorContact, setSimulatorContact] = useState<Contact | undefined>(() => contacts[0]);
-  const [simulatorCallerId, setSimulatorCallerId] = useState('+1 737 250 8034');
+  const [simulatorCallerId, setSimulatorCallerId] = useState('');
   const [simulatorCampaignId, setSimulatorCampaignId] = useState<string>('');
   const [isSimulatingBatch, setIsSimulatingBatch] = useState(false);
   const [activeBatchCampaignId, setActiveBatchCampaignId] = useState<string | null>(null);
@@ -363,7 +361,7 @@ function AculaWorkspace() {
 
     if (campaign) {
       setSimulatorCampaignId(campaign.id);
-      setSimulatorCallerId(campaign.callerId || '+1 737 250 8034');
+      setSimulatorCallerId(campaign.callerId || '');
     }
     if (questionnaire) setSimulatorQuestionnaire(questionnaire);
     if (contact) setSimulatorContact(contact);
@@ -440,7 +438,7 @@ function AculaWorkspace() {
           {
             speaker: 'system',
             text: isTransferred
-              ? 'Transfer Request: Routing call to assigned accountant (+1 737 250 8034).'
+              ? 'Transfer Request: Routing call to assigned accountant.'
               : 'Filing confirmed. Disconnecting.',
             timestamp: nowStr
           }

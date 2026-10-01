@@ -20,34 +20,30 @@ async function updateTwilioCallerId() {
   });
   console.log('SystemSetting DEFAULT_CALLER_ID updated:', setting);
 
-  // 2. Update any existing campaigns with the dummy number or null
+  // 2. Update any existing campaigns with the dummy or stale number
   const campaigns = await prisma.campaign.findMany();
   console.log(`Found ${campaigns.length} campaigns in database.`);
 
   for (const c of campaigns) {
-    if (!c.callerId || c.callerId.includes('6498370000') || c.callerId.includes('+64')) {
+    if (!c.callerId || c.callerId !== twilioNumber) {
       await prisma.campaign.update({
         where: { id: c.id },
         data: { callerId: twilioNumber }
       });
-      console.log(`Updated campaign "${c.name}" caller ID to ${twilioNumber}`);
+      console.log(`Updated campaign "${c.name}" caller ID from "${c.callerId}" to "${twilioNumber}"`);
     }
   }
 
-  // 3. Update transfer numbers in questionnaire questions if pointing to dummy
-  const questions = await prisma.question.findMany({
-    where: {
-      transferPhoneNumber: {
-        contains: '6498370000'
-      }
-    }
-  });
+  // 3. Update transfer numbers in questionnaire questions if pointing to dummy/stale numbers
+  const questions = await prisma.question.findMany();
   for (const q of questions) {
-    await prisma.question.update({
-      where: { id: q.id },
-      data: { transferPhoneNumber: twilioNumber }
-    });
-    console.log(`Updated question "${q.name}" transfer number to ${twilioNumber}`);
+    if (q.transferPhoneNumber && q.transferPhoneNumber !== twilioNumber) {
+      await prisma.question.update({
+        where: { id: q.id },
+        data: { transferPhoneNumber: twilioNumber }
+      });
+      console.log(`Updated question "${q.name}" transfer number to "${twilioNumber}"`);
+    }
   }
 
   console.log('Database successfully updated with Twilio caller number.');

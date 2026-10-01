@@ -230,7 +230,7 @@ async function main() {
     },
     {
       key: 'DEFAULT_CALLER_ID',
-      value: '+17372508034',
+      value: process.env.TWILIO_PHONE_NUMBER || '',
       description: 'Active Twilio Outbound Calling Phone Number'
     },
     {

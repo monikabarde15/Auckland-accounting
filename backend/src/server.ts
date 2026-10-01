@@ -13,6 +13,34 @@ const server = app.listen(env.PORT, () => {
     url: `http://localhost:${env.PORT}`
   }, `🚀 Acula Express REST API listening on port ${env.PORT}`);
 
+  if (env.TWILIO_PHONE_NUMBER) {
+    const twilioNum = env.TWILIO_PHONE_NUMBER;
+    // Auto-sync database campaign callerIds and default caller settings
+    prisma.systemSetting.upsert({
+      where: { key: 'DEFAULT_CALLER_ID' },
+      update: { value: twilioNum },
+      create: { key: 'DEFAULT_CALLER_ID', value: twilioNum, description: 'Practice Outbound Caller ID' }
+    }).catch(() => {});
+
+    prisma.campaign.updateMany({
+      where: {
+        OR: [
+          { callerId: '' },
+          { callerId: { contains: '7372508034' } },
+          { callerId: { contains: '737 250 8034' } },
+          { callerId: { contains: '6498370000' } }
+        ]
+      },
+      data: { callerId: twilioNum }
+    }).then((res) => {
+      if (res.count > 0) {
+        logger.info(`[AutoSync] Updated ${res.count} campaign caller IDs to ${twilioNum}`);
+      }
+    }).catch((err) => {
+      logger.warn({ err }, '[AutoSync] Failed to sync campaign caller IDs');
+    });
+  }
+
   if (env.NODE_ENV !== 'test') {
     // Auto-start the Call Worker for local dev convenience
     import('./workers/callWorker.js')

@@ -231,7 +231,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               id: campaign.id,
               name: campaign.name,
               description: campaign.description,
-              callerId: '+17372508034',
+              callerId: campaign.callerId || undefined,
               callerName: campaign.callerName || 'Auckland Accounting',
               targetContactIds: callableContactIds.length > 0 ? callableContactIds : undefined
             });
@@ -910,7 +910,7 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
     return {
       name: '',
       description: '',
-      callerId: '+17372508034',
+      callerId: '',
       callerName: 'Auckland Accounting Services',
       questionnaireId: questionnaires[0]?.id || '',
       callingStartTime: '09:00',
@@ -1051,7 +1051,7 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
           id: `camp_${Date.now()}`,
           name: formData.name || 'New Campaign',
           description: formData.description,
-          callerId: formData.callerId || '+17372508034',
+          callerId: formData.callerId || '',
           callerName: formData.callerName || 'Auckland Accounting Services',
           questionnaireId: formData.questionnaireId,
           status: 'draft',
