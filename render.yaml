@@ -26,9 +26,9 @@ services:
         value: 5000
       ## IMPORTANT: Update BASE_URL & TWILIO_WEBHOOK_BASE_URL to your actual Render URL
       - key: BASE_URL
-        value: https://acula-api.onrender.com
+        value: https://auckland-accounting.onrender.com
       - key: TWILIO_WEBHOOK_BASE_URL
-        value: https://acula-api.onrender.com
+        value: https://auckland-accounting.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
