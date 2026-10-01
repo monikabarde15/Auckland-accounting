@@ -612,16 +612,33 @@ export async function transitionCampaignStatus(
 
       // Enqueue to BullMQ if PENDING
       if (job.status === 'PENDING') {
-        try {
-          const { addOutboundCallJob } = await import('../queues/queueManager.js');
-          // Force bypass BullMQ since user is on Windows without Redis
-          throw new Error('Force bypass BullMQ');
-        } catch (queueErr) {
-          logger.warn(
-            { error: (queueErr as Error).message, callJobId: job.id },
-            'Failed to enqueue call job in BullMQ (job saved in DB). Executing direct dial fallback...'
-          );
-          // If Redis queue is offline, execute directly in background through callWorker
+        // On Render/production without Redis, fall back to direct in-process dispatch
+        // On environments with Redis, use BullMQ for proper queue management
+        const redisAvailable = env.REDIS_HOST && env.REDIS_HOST !== '127.0.0.1' || 
+                               process.env.REDIS_URL; // Render Redis addon sets REDIS_URL
+        
+        let enqueuedViaBullMQ = false;
+        
+        if (redisAvailable) {
+          try {
+            const { addOutboundCallJob } = await import('../queues/queueManager.js');
+            await addOutboundCallJob(
+              { campaignId, contactId: target.contactId, callJobId: job.id, attemptNumber: job.attempts + 1 },
+              {}
+            );
+            enqueuedViaBullMQ = true;
+            logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
+          } catch (queueErr) {
+            logger.warn(
+              { error: (queueErr as Error).message, callJobId: job.id },
+              'BullMQ enqueue failed, falling back to direct dispatch'
+            );
+          }
+        }
+        
+        if (!enqueuedViaBullMQ) {
+          // Direct in-process dispatch (works on Render without Redis)
+          logger.info({ callJobId: job.id }, 'Direct call dispatch (no Redis / BullMQ unavailable)');
           try {
             const { callWorker } = await import('../workers/callWorker.js');
             void callWorker.processCallJob({

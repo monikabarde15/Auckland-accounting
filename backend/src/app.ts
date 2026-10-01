@@ -20,6 +20,11 @@ import { rolesRouter } from './routes/roles.js';
 export function createApp(): Express {
   const app = express();
 
+  // 0. Trust proxy — REQUIRED for Render.com, Railway, Heroku, and all cloud platforms
+  // Allows Express to correctly read X-Forwarded-Proto (https) and X-Forwarded-For (real IP)
+  // Without this, req.protocol = 'http' even when behind HTTPS load balancer
+  app.set('trust proxy', 1);
+
   // 1. Security Headers
   const helmetFn: any = typeof helmet === 'function' ? helmet : (helmet as any).default || helmet;
   app.use(helmetFn());

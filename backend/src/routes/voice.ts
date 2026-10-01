@@ -6,11 +6,29 @@ import { logger } from '../middleware/logger.js';
 export const voiceRouter = Router();
 
 /**
+ * Resolves the canonical public URL for this request.
+ * Behind Render/Vercel/nginx proxies, req.protocol is 'http' even though
+ * the public-facing URL is 'https'. We must use TWILIO_WEBHOOK_BASE_URL
+ * or X-Forwarded-Proto to reconstruct the correct URL for signature validation.
+ */
+function getPublicUrl(req: Request): string {
+  const webhookBase = (process.env.TWILIO_WEBHOOK_BASE_URL || '').replace(/\/+$/, '');
+  if (webhookBase && webhookBase.startsWith('https://')) {
+    // Use the configured base URL — guaranteed to match what Twilio signed
+    return `${webhookBase}${req.originalUrl}`;
+  }
+  // Fallback: honour X-Forwarded-Proto header set by reverse proxies
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  return `${proto}://${host}${req.originalUrl}`;
+}
+
+/**
  * Middleware to validate Twilio cryptographic signature.
  */
 function requireTwilioSignature(req: Request, res: Response, next: () => void) {
   const signature = req.headers['x-twilio-signature'] as string | undefined;
-  const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+  const fullUrl = getPublicUrl(req);
   const params = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
 
   if (!twilioService.validateWebhookSignature(signature, fullUrl, params)) {
