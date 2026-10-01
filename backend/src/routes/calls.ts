@@ -142,14 +142,7 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
 </Response>`;
 
     try {
-<<<<<<< HEAD
-      const baseUrl = env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL || 'https://auckland-accounting.onrender.com';
-      const webhookUrl = `${baseUrl}/api/voice/twiml?prompt=` + encodeURIComponent(speakText);
-
-      const call = await client.calls.create({
-=======
       const callOptions: any = {
->>>>>>> 37a5b0a (twillio credentials changed)
         to: targetNumber,
         from: fromNumber
       };
