@@ -24,6 +24,7 @@ export const ContactManager: React.FC<ContactManagerProps> = ({
   contacts,
   onSaveContact,
   onDeleteContact,
+  onImportContacts,
   onCallContactInSimulator
 }) => {
   const { hasPermission } = useAuth();

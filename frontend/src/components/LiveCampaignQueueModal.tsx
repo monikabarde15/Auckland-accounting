@@ -184,7 +184,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     const isAnswered = statusText === 'completed' || statusText === 'in-progress';
     const isNoAnswer = statusText === 'no-answer' || statusText === 'busy';
     const finalDuration = Math.max(1, durationSec || callTimerRef.current || 1);
-    const finalStatus: CallStatus = isAnswered ? 'completed' : isNoAnswer ? 'no-answer' : 'failed';
+    const finalStatus: CallStatus = isAnswered ? 'completed' : isNoAnswer ? 'no_answer' : 'failed';
 
     const outcomeText = isAnswered
       ? 'Filing authorization recorded & verified'
@@ -373,7 +373,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
           try {
             const statusRes = await api.getLiveCallStatus(callSid);
             if (statusRes.success && statusRes.data) {
-              const { status: twilioStatus, duration, recordingUrl } = statusRes.data;
+              const { status: twilioStatus, duration, recordingUrl } = statusRes.data as any;
 
               if (twilioStatus === 'ringing') {
                 if (isAudioMonitorOnRef.current) {
