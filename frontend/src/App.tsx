@@ -595,7 +595,7 @@ function AculaWorkspace() {
         contacts={contacts}
         campaigns={campaigns}
         defaultCampaignId={simulatorCampaignId}
-        defaultQuestionnaireId={simulatorQuestionnaire?.id}
+        defaultQuestionnaireId={simulatorQuestionnaire?.id || questionnaires[0]?.id}
         defaultContactId={simulatorContact?.id}
         onSaveCallLog={handleSaveCallLog}
       />
