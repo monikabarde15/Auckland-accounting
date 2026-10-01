@@ -138,7 +138,7 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
 </Response>`;
 
     try {
-      const baseUrl = env.TWILIO_WEBHOOK_BASE_URL || 'https://hoped-side-right-tells.trycloudflare.com';
+      const baseUrl = env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL || 'https://auckland-accounting.onrender.com';
       const webhookUrl = `${baseUrl}/api/voice/twiml?prompt=` + encodeURIComponent(speakText);
 
       const call = await client.calls.create({
