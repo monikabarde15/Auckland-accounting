@@ -150,7 +150,9 @@ function AculaWorkspace() {
 
   // Simulator Modal State
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
-  const [simulatorCallerId, setSimulatorCallerId] = useState('');
+  const [simulatorQuestionnaire, setSimulatorQuestionnaire] = useState<Questionnaire | undefined>(undefined);
+  const [simulatorContact, setSimulatorContact] = useState<Contact | undefined>(undefined);
+  const [simulatorCallerId, setSimulatorCallerId] = useState('+1 737 250 8034');
   const [simulatorCampaignId, setSimulatorCampaignId] = useState<string>('');
   const [isSimulatingBatch, setIsSimulatingBatch] = useState(false);
   const [activeBatchCampaignId, setActiveBatchCampaignId] = useState<string | null>(null);
