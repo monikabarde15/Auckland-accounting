@@ -643,16 +643,23 @@ export async function transitionCampaignStatus(
         if (redisAvailable) {
           try {
             const { addOutboundCallJob } = await import('../queues/queueManager.js');
-            await addOutboundCallJob(
+            // FIRE AND FORGET so we don't block the API if Redis is hanging
+            addOutboundCallJob(
               { campaignId, contactId: target.contactId, callJobId: job.id, attemptNumber: job.attempts + 1 },
               {}
-            );
+            ).then(() => {
+              logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
+            }).catch((queueErr) => {
+              logger.warn(
+                { error: (queueErr as Error).message, callJobId: job.id },
+                'BullMQ enqueue failed in background'
+              );
+            });
             enqueuedViaBullMQ = true;
-            logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
-          } catch (queueErr) {
+          } catch (importErr) {
             logger.warn(
-              { error: (queueErr as Error).message, callJobId: job.id },
-              'BullMQ enqueue failed, falling back to direct dispatch'
+              { error: (importErr as Error).message, callJobId: job.id },
+              'Failed to import queueManager'
             );
           }
         }
