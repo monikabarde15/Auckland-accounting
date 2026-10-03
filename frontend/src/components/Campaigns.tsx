@@ -283,12 +283,16 @@ export const Campaigns: React.FC<CampaignsProps> = ({
         try {
           const res = await api.resumeCampaign(campaign.id);
           if (res.success && res.data) {
-            updatedCampaign = res.data;
+            updatedCampaign = {
+              ...res.data,
+              targetContactIds: campaign.targetContactIds
+            };
           }
         } catch {
           // Local fallback
         }
         onSaveCampaign(updatedCampaign);
+        setLiveQueueCampaign(updatedCampaign);
       } else if (action === 'CANCEL') {
         if (!hasPermission('campaigns.cancel')) {
           alert('Permission denied. You do not have permission to cancel campaigns (campaigns.cancel).');

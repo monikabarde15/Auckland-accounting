@@ -626,6 +626,15 @@ export async function transitionCampaignStatus(
             where: { campaignId, contactId: target.contactId }
           });
         }
+      } else if (job.status === 'FAILED' || job.status === 'CANCELLED' || job.status === 'COMPLETED') {
+        try {
+          job = await prisma.callJob.update({
+            where: { id: job.id },
+            data: { status: 'PENDING', attempts: 0 }
+          });
+        } catch {
+          // ignore
+        }
       }
 
       if (!job) continue;
