@@ -7,6 +7,7 @@ import { prisma } from '../services/prisma.js';
 import { env } from '../config/env.js';
 import { BadRequestError } from '../errors/AppError.js';
 import { CallStatus } from '@prisma/client';
+import { logger } from '../middleware/logger.js';
 
 export const callsRouter = Router();
 
@@ -147,11 +148,12 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
         from: fromNumber
       };
 
-      if (env.TWILIO_WEBHOOK_BASE_URL) {
-        callOptions.url = `${env.TWILIO_WEBHOOK_BASE_URL}/api/voice/twiml?prompt=` + encodeURIComponent(speakText);
-      } else {
-        callOptions.twiml = inlineTwiml;
-      }
+      const webhookBase =
+        env.TWILIO_WEBHOOK_BASE_URL ||
+        process.env.RENDER_EXTERNAL_URL ||
+        env.BASE_URL ||
+        'https://auckland-accountin.onrender.com';
+      callOptions.url = `${webhookBase.replace(/\/+$/, '')}/api/voice/twiml?prompt=${encodeURIComponent(speakText)}`;
 
       const call = await client.calls.create(callOptions);
 
@@ -170,16 +172,24 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
     } catch (twilioErr: any) {
       const errorMsg = twilioErr?.message || '';
       const errorCode = twilioErr?.code || twilioErr?.status;
+      logger.error({ errorCode, errorMsg, to: targetNumber, from: fromNumber }, 'Twilio call creation failed');
 
-      // Friendly explanation for Twilio Trial account restrictions
-      if (errorMsg.includes('trial accounts') || errorMsg.includes('verified recipient') || errorCode === 21215 || errorCode === 21608) {
-        return res.status(400).json({
-          success: false,
-          error: `Twilio Trial Restriction: Recipient number (${targetNumber}) must be verified in your Twilio Console (Verified Caller IDs), and the Caller ID (${fromNumber}) must be your active Twilio trial number. Details: ${errorMsg}`
-        });
+      let userFriendlyMessage = errorMsg;
+      if (errorCode === 0 || errorMsg.includes('trial accounts')) {
+        userFriendlyMessage = `Twilio Trial Restriction: Recipient number (${targetNumber}) must be verified in Twilio Console (Verified Caller IDs). Details: ${errorMsg}`;
+      } else if (errorCode === 573002 || errorMsg.includes('No Twilio trial phone number')) {
+        userFriendlyMessage = 'Twilio Setup: Please ensure a Twilio trial phone number is active in your Twilio Console.';
+      } else if (errorCode === 21215 || errorCode === 21608 || errorMsg.includes('verified recipient')) {
+        userFriendlyMessage = `Twilio Trial Restriction: Recipient number (${targetNumber}) must be verified in your Twilio Console (Verified Caller IDs).`;
       }
 
-      throw twilioErr;
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'TWILIO_ERROR',
+          message: userFriendlyMessage || 'Twilio call failed'
+        }
+      });
     }
   } catch (err: any) {
     next(err);
