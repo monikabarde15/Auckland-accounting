@@ -548,16 +548,15 @@ export async function transitionCampaignStatus(
     return c;
   }, { timeout: 20000 });
 
-  // If transitioning to RUNNING, create/enqueue CallJobs in BullMQ
+  // If transitioning to RUNNING, create/enqueue CallJobs
   if (targetStatus === CampaignStatus.RUNNING) {
-    // AUTO-RESET: For local testing and missing BullMQ, clear stuck/finished jobs when resuming so they dial again
     const activeContacts = await prisma.campaignContact.findMany({
       where: { campaignId },
       select: { contactId: true }
     });
     const activeContactIds = activeContacts.map(c => c.contactId);
 
-    // AUTO-RESET: For local testing and missing BullMQ, clear stuck/finished jobs when resuming so they dial again
+    // AUTO-RESET: Reset stuck/finished jobs to PENDING so they dial again on resume
     await prisma.callJob.updateMany({
       where: {
         campaignId,
@@ -567,10 +566,13 @@ export async function transitionCampaignStatus(
       data: { status: 'PENDING', attempts: 0 }
     });
 
+    // FIX: Also include DISPATCHED contacts in targets — on PAUSED→RUNNING
+    // campaignContact.status may still be DISPATCHED, COMPLETED, etc.
+    // We re-query after the reset above, so use a broad filter.
     const targets = await prisma.campaignContact.findMany({
       where: {
         campaignId,
-        status: { in: ['PENDING', 'INCLUDED'] }
+        status: { notIn: ['EXCLUDED_DNC', 'CANCELLED'] }
       },
       include: {
         contact: {
@@ -578,6 +580,8 @@ export async function transitionCampaignStatus(
         }
       }
     });
+
+    logger.info({ campaignId, targetCount: targets.length }, 'Resume: dispatching calls to contacts');
 
     for (const target of targets) {
       if (target.contact.isDoNotCall) continue;
@@ -612,13 +616,14 @@ export async function transitionCampaignStatus(
 
       // Enqueue to BullMQ if PENDING
       if (job.status === 'PENDING') {
-        // On Render/production without Redis, fall back to direct in-process dispatch
-        // On environments with Redis, use BullMQ for proper queue management
-        const redisAvailable = env.REDIS_HOST && env.REDIS_HOST !== '127.0.0.1' || 
-                               process.env.REDIS_URL; // Render Redis addon sets REDIS_URL
-        
+        // FIX: Correct operator precedence — wrap || inside parentheses
+        const redisAvailable = (
+          (env.REDIS_HOST && env.REDIS_HOST !== '127.0.0.1') ||
+          Boolean(process.env.REDIS_URL)
+        );
+
         let enqueuedViaBullMQ = false;
-        
+
         if (redisAvailable) {
           try {
             const { addOutboundCallJob } = await import('../queues/queueManager.js');
@@ -635,10 +640,12 @@ export async function transitionCampaignStatus(
             );
           }
         }
-        
-        if (!enqueuedViaBullMQ) {
-          // Direct in-process dispatch (works on Render without Redis)
-          logger.info({ callJobId: job.id }, 'Direct call dispatch (no Redis / BullMQ unavailable)');
+
+        // FIX: Always also do direct in-process dispatch on Render (single-process deployment).
+        // On Render, BullMQ jobs sit in Redis queue but the worker may not be running as a
+        // separate process. Direct dispatch ensures the call is placed immediately.
+        if (!enqueuedViaBullMQ || process.env.RENDER) {
+          logger.info({ callJobId: job.id, render: Boolean(process.env.RENDER) }, 'Direct call dispatch');
           try {
             const { callWorker } = await import('../workers/callWorker.js');
             void callWorker.processCallJob({
