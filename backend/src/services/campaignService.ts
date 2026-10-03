@@ -380,6 +380,21 @@ export async function updateCampaign(id: string, input: UpdateCampaignInput) {
     finalCallerId = norm.isValid ? norm.e164 : input.callerId;
   }
 
+  let resolvedQuestionnaireId: string | undefined = undefined;
+  if (input.questionnaireId !== undefined) {
+    if (input.questionnaireId === null) {
+      resolvedQuestionnaireId = undefined; // Prisma requires null to clear it, but let's just leave it unchanged or clear it if they meant to. Wait, if they pass null, they want to clear it.
+    } else {
+      const q = await prisma.questionnaire.findUnique({ where: { id: input.questionnaireId } });
+      if (q) {
+        resolvedQuestionnaireId = q.id;
+      } else {
+        const fallbackQ = await prisma.questionnaire.findFirst({ where: { isActive: true } });
+        resolvedQuestionnaireId = fallbackQ?.id || undefined;
+      }
+    }
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const c = await tx.campaign.update({
       where: { id },
@@ -388,7 +403,7 @@ export async function updateCampaign(id: string, input: UpdateCampaignInput) {
         description: input.description !== undefined ? input.description?.trim() || null : undefined,
         callerId: finalCallerId,
         callerName: input.callerName !== undefined ? input.callerName : undefined,
-        questionnaireId: input.questionnaireId !== undefined ? input.questionnaireId : undefined,
+        questionnaireId: resolvedQuestionnaireId !== undefined ? resolvedQuestionnaireId : (input.questionnaireId === null ? null : undefined),
         callingStartTime: input.callingStartTime !== undefined ? input.callingStartTime : undefined,
         callingEndTime: input.callingEndTime !== undefined ? input.callingEndTime : undefined,
         daysOfWeek: input.daysOfWeek !== undefined ? input.daysOfWeek : undefined,

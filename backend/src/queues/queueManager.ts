@@ -1,4 +1,5 @@
 import { Queue, QueueEvents, JobsOptions, ConnectionOptions } from 'bullmq';
+import IORedis from 'ioredis';
 import { env } from '../config/env.js';
 import { logger } from '../middleware/logger.js';
 
@@ -34,17 +35,26 @@ export const QUEUE_NAMES = {
   CALL_EVENTS: 'call-events'
 } as const;
 
-export function getRedisConnectionOptions(): ConnectionOptions {
+export function getRedisConnectionOptions(): any {
+  const baseOptions = {
+    maxRetriesPerRequest: null,
+    enableOfflineQueue: false,
+    retryStrategy(times: number) {
+      if (times > 2) return null;
+      return Math.min(times * 200, 1000);
+    }
+  };
+
+  if (process.env.REDIS_URL) {
+    // BullMQ allows passing an IORedis instance directly
+    return new IORedis(process.env.REDIS_URL, baseOptions);
+  }
+
   return {
     host: env.REDIS_HOST,
     port: env.REDIS_PORT,
     password: env.REDIS_PASSWORD || undefined,
-    maxRetriesPerRequest: null, // Required by BullMQ
-    enableOfflineQueue: false,
-    retryStrategy(times) {
-      if (times > 2) return null; // stop reconnecting in test/unreachable mode
-      return Math.min(times * 200, 1000);
-    }
+    ...baseOptions
   };
 }
 
