@@ -41,7 +41,16 @@ const server = app.listen(env.PORT, () => {
     });
   }
 
-  if (env.NODE_ENV !== 'test') {
+  const redisConfigured =
+    Boolean(process.env.REDIS_URL) ||
+    (Boolean(env.REDIS_HOST) && env.REDIS_HOST !== '127.0.0.1' && env.REDIS_HOST !== 'localhost');
+  const isLocalDev = env.NODE_ENV === 'development' && !process.env.RENDER;
+
+  if (env.NODE_ENV !== 'test' && !redisConfigured && !isLocalDev) {
+    logger.info('No Redis configured — skipping BullMQ CallWorker (calls use direct in-process dispatch)');
+  }
+
+  if (env.NODE_ENV !== 'test' && (redisConfigured || isLocalDev)) {
     // Auto-start the Call Worker for local dev convenience
     import('./workers/callWorker.js')
       .then(({ callWorker }) => {
