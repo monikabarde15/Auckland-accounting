@@ -15,7 +15,7 @@ const sanitizeString = (val: unknown) => {
 
 const sanitizeBaseUrl = (val: unknown) => {
   if (typeof val !== 'string' || !val.trim() || val === '/' || !val.startsWith('http')) {
-    return 'http://localhost:5000';
+    return process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5000';
   }
   return val;
 };
@@ -51,7 +51,7 @@ export const envSchema = z
       return false;
     }, z.boolean().default(false)),
     CALL_WORKER_CONCURRENCY: z.preprocess(sanitizeString, z.coerce.number().min(1).max(50).default(5)),
-    BASE_URL: z.preprocess(sanitizeBaseUrl, z.string().url().default('http://localhost:5000')),
+    BASE_URL: z.preprocess(sanitizeBaseUrl, z.string().url()),
     LOG_LEVEL: z.preprocess(sanitizeString, z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'))
   })
   .superRefine((data, ctx) => {
