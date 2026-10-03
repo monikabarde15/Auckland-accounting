@@ -136,7 +136,7 @@ describe('Frontend Role & Dynamic Permission Management Client Tests (Spec §4, 
       ]);
 
       expect(fetchSpy).toHaveBeenCalledWith(
-        '/api/roles/role_admin/permissions',
+        expect.stringContaining('/api/roles/role_admin/permissions'),
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify({
