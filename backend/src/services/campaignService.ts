@@ -1,6 +1,6 @@
 import { prisma } from './prisma.js';
 import { callWorker } from '../workers/callWorker.js';
-import { CampaignStatus, CallJobStatus } from '@prisma/client';
+import { CampaignStatus, CallJobStatus, CallStatus } from '@prisma/client';
 import { validateCampaignForLaunch } from './campaignValidationService.js';
 import { normalizePhoneNumber } from '../utils/phone.js';
 import { BadRequestError, NotFoundError } from '../errors/AppError.js';
@@ -564,150 +564,173 @@ export async function transitionCampaignStatus(
     return c;
   }, { timeout: 20000 });
 
-  // If transitioning to RUNNING, create/enqueue CallJobs
+  // If transitioning to RUNNING, create/enqueue CallJobs asynchronously in background
+  // so that the API response returns INSTANTLY without making the client wait!
   if (targetStatus === CampaignStatus.RUNNING) {
-    const activeContacts = await prisma.campaignContact.findMany({
-      where: { campaignId },
-      select: { contactId: true }
-    });
-    const activeContactIds = activeContacts.map(c => c.contactId);
+    setImmediate(async () => {
+      try {
+        const activeContacts = await prisma.campaignContact.findMany({
+          where: { campaignId },
+          select: { contactId: true }
+        });
+        const activeContactIds = activeContacts.map((c) => c.contactId);
 
-    // AUTO-RESET: Reset stuck/finished jobs to PENDING so they dial again on resume
-    await prisma.callJob.updateMany({
-      where: {
-        campaignId,
-        contactId: { in: activeContactIds },
-        status: { in: ['DISPATCHED', 'FAILED', 'COMPLETED'] }
-      },
-      data: { status: 'PENDING', attempts: 0 }
-    });
+        // AUTO-RESET: Reset stuck/finished jobs to PENDING so they dial again on resume
+        await prisma.callJob.updateMany({
+          where: {
+            campaignId,
+            contactId: { in: activeContactIds },
+            status: { in: ['DISPATCHED', 'FAILED', 'COMPLETED'] }
+          },
+          data: { status: 'PENDING', attempts: 0 }
+        });
 
-    // FIX: Also include DISPATCHED contacts in targets — on PAUSED→RUNNING
-    // campaignContact.status may still be DISPATCHED, COMPLETED, etc.
-    // We re-query after the reset above, so use a broad filter.
-    const targets = await prisma.campaignContact.findMany({
-      where: {
-        campaignId,
-        status: { notIn: ['EXCLUDED_DNC', 'CANCELLED'] }
-      },
-      include: {
-        contact: {
-          select: { id: true, isDoNotCall: true, phoneNumber: true }
-        }
-      }
-    });
-
-    logger.info({ campaignId, targetCount: targets.length }, 'Resume: dispatching calls to contacts');
-
-    for (const target of targets) {
-      if (target.contact.isDoNotCall) continue;
-
-      // Find or create CallJob
-      let job = await prisma.callJob.findFirst({
-        where: {
-          campaignId,
-          contactId: target.contactId
-        }
-      });
-
-      if (!job) {
-        try {
-          job = await prisma.callJob.create({
-            data: {
-              campaignId,
-              contactId: target.contactId,
-              status: 'PENDING',
-              attempts: 0,
-              maxAttempts: updated.maxRetries || 3
+        const targets = await prisma.campaignContact.findMany({
+          where: {
+            campaignId,
+            status: { notIn: ['EXCLUDED_DNC', 'CANCELLED'] }
+          },
+          include: {
+            contact: {
+              select: { id: true, isDoNotCall: true, phoneNumber: true }
             }
-          });
-        } catch {
-          job = await prisma.callJob.findFirst({
+          }
+        });
+
+        logger.info({ campaignId, targetCount: targets.length }, 'Resume: background dispatching calls');
+
+        for (const target of targets) {
+          if (target.contact.isDoNotCall) continue;
+
+          // Find or create CallJob
+          let job = await prisma.callJob.findFirst({
             where: { campaignId, contactId: target.contactId }
           });
-        }
-      } else if (job.status === 'FAILED' || job.status === 'CANCELLED' || job.status === 'COMPLETED') {
-        try {
-          job = await prisma.callJob.update({
-            where: { id: job.id },
-            data: { status: 'PENDING', attempts: 0 }
-          });
-        } catch {
-          // ignore
-        }
-      }
 
-      if (!job) continue;
+          if (!job) {
+            try {
+              job = await prisma.callJob.create({
+                data: {
+                  campaignId,
+                  contactId: target.contactId,
+                  status: 'PENDING',
+                  attempts: 0,
+                  maxAttempts: updated.maxRetries || 3
+                }
+              });
+            } catch {
+              job = await prisma.callJob.findFirst({
+                where: { campaignId, contactId: target.contactId }
+              });
+            }
+          } else if (job.status === 'FAILED' || job.status === 'CANCELLED' || job.status === 'COMPLETED') {
+            try {
+              job = await prisma.callJob.update({
+                where: { id: job.id },
+                data: { status: 'PENDING', attempts: 0 }
+              });
+            } catch {
+              // ignore
+            }
+          }
 
-      // Enqueue to BullMQ if PENDING
-      if (job.status === 'PENDING') {
-        // FIX: Correct operator precedence — wrap || inside parentheses
-        const redisAvailable = (
-          (env.REDIS_HOST && env.REDIS_HOST !== '127.0.0.1') ||
-          Boolean(process.env.REDIS_URL)
-        );
+          if (!job) continue;
 
-        let enqueuedViaBullMQ = false;
-
-        if (redisAvailable) {
-          try {
-            const { addOutboundCallJob } = await import('../queues/queueManager.js');
-            // FIRE AND FORGET so we don't block the API if Redis is hanging
-            addOutboundCallJob(
-              { campaignId, contactId: target.contactId, callJobId: job.id, attemptNumber: job.attempts + 1 },
-              {}
-            ).then(() => {
-              logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
-            }).catch((queueErr) => {
-              logger.warn(
-                { error: (queueErr as Error).message, callJobId: job.id },
-                'BullMQ enqueue failed in background'
-              );
-            });
-            enqueuedViaBullMQ = true;
-          } catch (importErr) {
-            logger.warn(
-              { error: (importErr as Error).message, callJobId: job.id },
-              'Failed to import queueManager'
+          if (job.status === 'PENDING') {
+            const redisAvailable = Boolean(
+              (env.REDIS_HOST && env.REDIS_HOST !== '127.0.0.1') || process.env.REDIS_URL
             );
-          }
-        }
 
-        // FIX: Always also do direct in-process dispatch on Render (single-process deployment).
-        // On Render, BullMQ jobs sit in Redis queue but the worker may not be running as a
-        // separate process. Direct dispatch ensures the call is placed immediately.
-        if (!enqueuedViaBullMQ || process.env.RENDER) {
-          logger.info({ callJobId: job.id, render: Boolean(process.env.RENDER) }, 'Direct call dispatch');
-          try {
-            void callWorker.processCallJob({
-              id: `direct-${job.id}`,
-              data: {
-                campaignId,
-                contactId: target.contactId,
-                callJobId: job.id,
-                attemptNumber: job.attempts + 1
+            let enqueuedViaBullMQ = false;
+
+            if (redisAvailable) {
+              try {
+                const { addOutboundCallJob } = await import('../queues/queueManager.js');
+                addOutboundCallJob(
+                  { campaignId, contactId: target.contactId, callJobId: job.id, attemptNumber: job.attempts + 1 },
+                  {}
+                ).then(() => {
+                  logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
+                }).catch((queueErr) => {
+                  logger.warn(
+                    { error: (queueErr as Error).message, callJobId: job.id },
+                    'BullMQ enqueue failed in background'
+                  );
+                });
+                enqueuedViaBullMQ = true;
+              } catch (importErr) {
+                logger.warn(
+                  { error: (importErr as Error).message, callJobId: job.id },
+                  'Failed to import queueManager'
+                );
               }
-            }).catch((directErr) => {
-              logger.error(
-                { error: (directErr as Error).message, callJobId: job.id },
-                'Direct call execution failed'
-              );
-            });
-          } catch (workerImportErr) {
-            logger.error({ error: (workerImportErr as Error).message }, 'Failed to import callWorker for direct dispatch');
+            }
+
+            // Direct in-process dispatch with duplicate-call guard (skip if already initiated in last 45s)
+            if (!enqueuedViaBullMQ || process.env.RENDER) {
+              const recentAttempt = await prisma.callAttempt.findFirst({
+                where: {
+                  callJob: { contactId: target.contactId },
+                  startedAt: { gte: new Date(Date.now() - 45 * 1000) }
+                }
+              });
+              if (recentAttempt) {
+                logger.info({ contactId: target.contactId }, 'Skipping direct dispatch: call already initiated in last 45s');
+                continue;
+              }
+
+              logger.info({ callJobId: job.id, render: Boolean(process.env.RENDER) }, 'Direct call dispatch');
+              try {
+                void callWorker.processCallJob({
+                  id: `direct-${job.id}`,
+                  data: {
+                    campaignId,
+                    contactId: target.contactId,
+                    callJobId: job.id,
+                    attemptNumber: job.attempts + 1
+                  }
+                }).catch((directErr) => {
+                  logger.error(
+                    { error: (directErr as Error).message, callJobId: job.id },
+                    'Direct call execution failed'
+                  );
+                });
+              } catch (workerImportErr) {
+                logger.error({ error: (workerImportErr as Error).message }, 'Failed to import callWorker for direct dispatch');
+              }
+            }
           }
         }
+      } catch (bgError) {
+        logger.error({ err: bgError, campaignId }, 'Error in async background campaign dispatch');
       }
-    }
+    });
+  } else if (targetStatus === CampaignStatus.PAUSED) {
+    // Immediate pause: cancel in-flight queued/initiated/ringing attempts
+    await prisma.callAttempt.updateMany({
+      where: {
+        callJob: { campaignId },
+        status: { in: [CallStatus.QUEUED, CallStatus.INITIATED, CallStatus.RINGING] }
+      },
+      data: { status: CallStatus.CANCELLED }
+    }).catch(() => {});
   } else if (targetStatus === CampaignStatus.CANCELLED) {
-    // Cancel all pending jobs
+    // Cancel all pending jobs and in-flight calls immediately
     await prisma.callJob.updateMany({
       where: {
         campaignId,
         status: { in: [CallJobStatus.PENDING, CallJobStatus.SCHEDULED] }
       },
       data: { status: CallJobStatus.CANCELLED }
-    });
+    }).catch(() => {});
+
+    await prisma.callAttempt.updateMany({
+      where: {
+        callJob: { campaignId },
+        status: { in: [CallStatus.QUEUED, CallStatus.INITIATED, CallStatus.RINGING] }
+      },
+      data: { status: CallStatus.CANCELLED }
+    }).catch(() => {});
   }
 
   return getCampaignById(updated.id);
@@ -748,9 +771,26 @@ export async function emergencyStopAllCampaigns(context: {
       });
     });
 
+    // Cancel all in-flight call attempts immediately
+    await prisma.callAttempt.updateMany({
+      where: {
+        callJob: { campaignId: { in: campaignIds } },
+        status: { in: [CallStatus.QUEUED, CallStatus.INITIATED, CallStatus.RINGING] }
+      },
+      data: { status: CallStatus.CANCELLED }
+    }).catch(() => {});
+
+    await prisma.callJob.updateMany({
+      where: {
+        campaignId: { in: campaignIds },
+        status: CallJobStatus.DISPATCHED
+      },
+      data: { status: CallJobStatus.PENDING }
+    }).catch(() => {});
+
     logger.warn(
       { count: campaignIds.length, campaignIds, userId: context.userId },
-      'EMERGENCY STOP: All active campaigns transitioned to PAUSED'
+      'EMERGENCY STOP: All active campaigns transitioned to PAUSED and in-flight calls cancelled'
     );
   }
 

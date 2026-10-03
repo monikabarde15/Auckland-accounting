@@ -88,6 +88,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
   const callTimerRef = useRef<number>(0);
   const activeCallIndexRef = useRef<number | null>(null);
   const isAudioMonitorOnRef = useRef<boolean>(true);
+  const isDialingRef = useRef<boolean>(false);
 
   useEffect(() => {
     isAudioMonitorOnRef.current = isAudioMonitorOn;
@@ -138,7 +139,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     }));
 
     setQueueItems(items);
-    setIsAutoDialing(true);
+    setIsAutoDialing(false);
   }, [isOpen, targetContacts]);
 
   // Live call seconds counter
@@ -291,11 +292,15 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
   };
 
   const dialNextContact = async () => {
+    if (isDialingRef.current) return;
+    isDialingRef.current = true;
+
     // Find next available queued item
     const nextIdx = queueItems.findIndex((item) => item.status === 'QUEUED');
     if (nextIdx === -1) {
       setIsAutoDialing(false);
       setActiveCallIndex(null);
+      isDialingRef.current = false;
       return;
     }
 
@@ -447,6 +452,8 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
       phoneAudio.stopRingtone();
       speechService.stop();
       handleCallFinished(nextIdx, currentContact, 'failed', 0, err?.message || 'Network error placing call');
+    } finally {
+      isDialingRef.current = false;
     }
   };
 

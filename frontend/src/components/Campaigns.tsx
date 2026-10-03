@@ -91,6 +91,8 @@ export const Campaigns: React.FC<CampaignsProps> = ({
     action: 'START' | 'PAUSE' | 'RESUME' | 'CANCEL' | 'DELETE';
   } | null>(null);
   const [isEmergencyStopConfirmOpen, setIsEmergencyStopConfirmOpen] = useState<boolean>(false);
+  const [executingCampaignId, setExecutingCampaignId] = useState<string | null>(null);
+  const isExecutingRef = useRef<boolean>(false);
 
   // Status Metrics
   const metrics = useMemo(() => {
@@ -197,118 +199,145 @@ export const Campaigns: React.FC<CampaignsProps> = ({
     }
   };
 
-  // State Transition Action
+  // Direct, single-execution handler for START and RESUME (no slow confirm dialogs, no double-clicking)
+  const handleDirectStartOrResume = async (campaign: Campaign, action: 'START' | 'RESUME') => {
+    if (isExecutingRef.current) return;
+    if (action === 'START' && !hasPermission('campaigns.start')) {
+      alert('Permission denied. You do not have permission to start campaigns (campaigns.start).');
+      return;
+    }
+    if (action === 'RESUME' && !hasPermission('campaigns.resume')) {
+      alert('Permission denied. You do not have permission to resume campaigns (campaigns.resume).');
+      return;
+    }
+
+    isExecutingRef.current = true;
+    setExecutingCampaignId(campaign.id);
+
+    try {
+      let updatedCampaign: Campaign = {
+        ...campaign,
+        status: 'running',
+        startedAt: campaign.startedAt || new Date().toISOString()
+      };
+
+      // 1. INSTANT OPTIMISTIC UI UPDATE RIGHT NOW! (0ms!)
+      onSaveCampaign(updatedCampaign);
+
+      // Resolve callable contacts for this campaign
+      const matchedContacts = Array.isArray(campaign.targetContactIds)
+        ? contacts.filter((ct) => campaign.targetContactIds?.includes(ct.id))
+        : campaign.targetGroups && campaign.targetGroups.length > 0
+        ? contacts.filter((ct) => ct.groups?.some((g) => campaign.targetGroups?.includes(typeof g === 'string' ? g : (g as any).name)))
+        : [];
+      const callableContactIds = matchedContacts.map((ct) => ct.id);
+
+      try {
+        let res = action === 'START'
+          ? await api.startCampaign(campaign.id)
+          : await api.resumeCampaign(campaign.id);
+
+        // If campaign does not exist in backend database yet, create/sync it first!
+        if (action === 'START' && res.error && (res.error.code === 'NOT_FOUND' || res.error.message?.toLowerCase().includes('not found'))) {
+          const createRes = await api.createCampaign({
+            id: campaign.id,
+            name: campaign.name,
+            description: campaign.description,
+            callerId: campaign.callerId || undefined,
+            callerName: campaign.callerName || 'Auckland Accounting',
+            targetContactIds: callableContactIds.length > 0 ? callableContactIds : undefined
+          });
+
+          if (createRes.success && createRes.data) {
+            res = await api.startCampaign(createRes.data.id);
+            if (res.success && res.data) {
+              updatedCampaign = {
+                ...res.data,
+                id: createRes.data.id,
+                targetContactIds: campaign.targetContactIds || callableContactIds
+              };
+            }
+          }
+        }
+
+        if (res.success && res.data) {
+          updatedCampaign = {
+            ...res.data,
+            targetContactIds: campaign.targetContactIds || callableContactIds
+          };
+        }
+      } catch (err: any) {
+        console.warn('Notice from backend during campaign execution:', err);
+      }
+
+      onSaveCampaign(updatedCampaign);
+    } catch (err: any) {
+      alert(err.message || 'Operation failed');
+    } finally {
+      isExecutingRef.current = false;
+      setExecutingCampaignId(null);
+    }
+  };
+
+  // Instant, single-click Pause handler (optimistic state + background API)
+  const handleDirectPause = async (campaign: Campaign) => {
+    if (!hasPermission('campaigns.pause')) {
+      alert('Permission denied. You do not have permission to pause campaigns (campaigns.pause).');
+      return;
+    }
+    // Optimistic instant UI update
+    onSaveCampaign({ ...campaign, status: 'paused' });
+    if (liveQueueCampaign?.id === campaign.id) {
+      setLiveQueueCampaign((prev) => (prev ? { ...prev, status: 'paused' } : null));
+    }
+    // Fire API asynchronously
+    api.pauseCampaign(campaign.id).then((res) => {
+      if (res.success && res.data) {
+        onSaveCampaign(res.data);
+      }
+    }).catch(() => {});
+  };
+
+  // Instant, single-click Stop / Cancel handler (optimistic state + background API)
+  const handleDirectStop = async (campaign: Campaign) => {
+    if (!hasPermission('campaigns.cancel')) {
+      alert('Permission denied. You do not have permission to cancel campaigns (campaigns.cancel).');
+      return;
+    }
+    // Optimistic instant UI update
+    onSaveCampaign({ ...campaign, status: 'cancelled' });
+    if (liveQueueCampaign?.id === campaign.id) {
+      setLiveQueueCampaign(null);
+    }
+    // Fire API asynchronously
+    api.cancelCampaign(campaign.id).then((res) => {
+      if (res.success && res.data) {
+        onSaveCampaign(res.data);
+      }
+    }).catch(() => {});
+  };
+
+  // State Transition Action for other dialogs (DELETE)
   const handleExecuteStateAction = async () => {
     if (!confirmAction) return;
     const { campaign, action } = confirmAction;
+    setConfirmAction(null);
+
+    if (action === 'START' || action === 'RESUME') {
+      await handleDirectStartOrResume(campaign, action);
+      return;
+    }
+    if (action === 'PAUSE') {
+      await handleDirectPause(campaign);
+      return;
+    }
+    if (action === 'CANCEL') {
+      await handleDirectStop(campaign);
+      return;
+    }
 
     try {
-      if (action === 'START') {
-        if (!hasPermission('campaigns.start')) {
-          alert('Permission denied. You do not have permission to start campaigns (campaigns.start).');
-          return;
-        }
-        let updatedCampaign: Campaign = {
-          ...campaign,
-          status: 'running',
-          startedAt: new Date().toISOString()
-        };
-
-        // Resolve callable contacts for this campaign
-        const matchedContacts = Array.isArray(campaign.targetContactIds)
-          ? contacts.filter((ct) => campaign.targetContactIds?.includes(ct.id))
-          : campaign.targetGroups && campaign.targetGroups.length > 0
-          ? contacts.filter((ct) => ct.groups?.some((g) => campaign.targetGroups?.includes(typeof g === 'string' ? g : (g as any).name)))
-          : [];
-        const callableContactIds = matchedContacts.map((ct) => ct.id);
-
-        try {
-          let res = await api.startCampaign(campaign.id);
-
-          // If campaign does not exist in backend database yet, create/sync it first!
-          if (res.error && (res.error.code === 'NOT_FOUND' || res.error.message?.toLowerCase().includes('not found'))) {
-            const createRes = await api.createCampaign({
-              id: campaign.id,
-              name: campaign.name,
-              description: campaign.description,
-              callerId: campaign.callerId || undefined,
-              callerName: campaign.callerName || 'Auckland Accounting',
-              targetContactIds: callableContactIds.length > 0 ? callableContactIds : undefined
-            });
-
-            if (createRes.success && createRes.data) {
-              res = await api.startCampaign(createRes.data.id);
-              if (res.success && res.data) {
-                updatedCampaign = {
-                  ...res.data,
-                  id: createRes.data.id,
-                  targetContactIds: campaign.targetContactIds || callableContactIds
-                };
-              }
-            }
-          }
-
-          if (res.success && res.data) {
-            updatedCampaign = {
-              ...res.data,
-              targetContactIds: campaign.targetContactIds || callableContactIds
-            };
-          }
-        } catch (err: any) {
-          console.warn('Notice from backend during campaign start:', err);
-        }
-        onSaveCampaign(updatedCampaign);
-        setLiveQueueCampaign(updatedCampaign);
-      } else if (action === 'PAUSE') {
-        if (!hasPermission('campaigns.pause')) {
-          alert('Permission denied. You do not have permission to pause campaigns (campaigns.pause).');
-          return;
-        }
-        let updatedCampaign: Campaign = { ...campaign, status: 'paused' };
-        try {
-          const res = await api.pauseCampaign(campaign.id);
-          if (res.success && res.data) {
-            updatedCampaign = res.data;
-          }
-        } catch {
-          // Local fallback
-        }
-        onSaveCampaign(updatedCampaign);
-      } else if (action === 'RESUME') {
-        if (!hasPermission('campaigns.resume')) {
-          alert('Permission denied. You do not have permission to resume campaigns (campaigns.resume).');
-          return;
-        }
-        let updatedCampaign: Campaign = { ...campaign, status: 'running' };
-        try {
-          const res = await api.resumeCampaign(campaign.id);
-          if (res.success && res.data) {
-            updatedCampaign = {
-              ...res.data,
-              targetContactIds: campaign.targetContactIds
-            };
-          }
-        } catch {
-          // Local fallback
-        }
-        onSaveCampaign(updatedCampaign);
-        setLiveQueueCampaign(updatedCampaign);
-      } else if (action === 'CANCEL') {
-        if (!hasPermission('campaigns.cancel')) {
-          alert('Permission denied. You do not have permission to cancel campaigns (campaigns.cancel).');
-          return;
-        }
-        let updatedCampaign: Campaign = { ...campaign, status: 'cancelled' };
-        try {
-          const res = await api.cancelCampaign(campaign.id);
-          if (res.success && res.data) {
-            updatedCampaign = res.data;
-          }
-        } catch {
-          // Local fallback
-        }
-        onSaveCampaign(updatedCampaign);
-      } else if (action === 'DELETE') {
+      if (action === 'DELETE') {
         if (!hasPermission('campaigns.delete')) {
           alert('Permission denied. You do not have permission to delete campaigns (campaigns.delete).');
           return;
@@ -322,33 +351,23 @@ export const Campaigns: React.FC<CampaignsProps> = ({
       }
     } catch (err: any) {
       alert(err.message || 'Operation failed');
-    } finally {
-      setConfirmAction(null);
     }
   };
 
-  // Emergency Stop Handler (pauses/cancels all running campaigns and terminates queued jobs)
+  // Emergency Stop Handler (pauses/cancels all running campaigns INSTANTLY)
   const handleEmergencyStopAll = async () => {
-    try {
-      await api.emergencyStopAllCampaigns();
-    } catch {
-      // Continue to local state sync
-    }
-
-    const runningList = campaigns.filter((c) => String(c.status).toUpperCase() === 'RUNNING');
-    for (const c of runningList) {
-      try {
-        const res = await api.pauseCampaign(c.id);
-        if (res.success && res.data) {
-          onSaveCampaign(res.data);
-        } else {
-          onSaveCampaign({ ...c, status: 'paused' });
-        }
-      } catch {
+    setIsEmergencyStopConfirmOpen(false);
+    // Instant optimistic update on UI
+    campaigns.forEach((c) => {
+      if (String(c.status).toUpperCase() === 'RUNNING') {
         onSaveCampaign({ ...c, status: 'paused' });
       }
+    });
+    if (liveQueueCampaign) {
+      setLiveQueueCampaign(null);
     }
-    setIsEmergencyStopConfirmOpen(false);
+    // Fire API asynchronously in background
+    api.emergencyStopAllCampaigns().catch(() => {});
   };
 
   const getStatusBadge = (status: CampaignStatus) => {
@@ -384,8 +403,9 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               <Button
                 variant="danger"
                 size="sm"
-                onClick={() => setIsEmergencyStopConfirmOpen(true)}
+                onClick={handleEmergencyStopAll}
                 leftIcon={<AlertOctagon className="w-3.5 h-3.5" />}
+                title="Immediately halt all running outbound calls"
               >
                 Halt All Calls
               </Button>
@@ -540,21 +560,21 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                 dropdownItems.push({
                   label: 'Start Campaign',
                   icon: <Play className="w-3.5 h-3.5 text-emerald-600" />,
-                  onClick: () => setConfirmAction({ campaign: c, action: 'START' })
+                  onClick: () => handleDirectStartOrResume(c, 'START')
                 });
               }
               if (s === 'RUNNING' && hasPermission('campaigns.pause')) {
                 dropdownItems.push({
                   label: 'Pause Campaign',
                   icon: <Pause className="w-3.5 h-3.5 text-amber-600" />,
-                  onClick: () => setConfirmAction({ campaign: c, action: 'PAUSE' })
+                  onClick: () => handleDirectPause(c)
                 });
               }
               if (s === 'PAUSED' && hasPermission('campaigns.resume')) {
                 dropdownItems.push({
                   label: 'Resume Campaign',
                   icon: <Play className="w-3.5 h-3.5 text-emerald-600" />,
-                  onClick: () => setConfirmAction({ campaign: c, action: 'RESUME' })
+                  onClick: () => handleDirectStartOrResume(c, 'RESUME')
                 });
               }
               if (s !== 'RUNNING' && hasPermission('campaigns.edit')) {
@@ -577,7 +597,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                   label: 'Cancel Campaign',
                   icon: <StopCircle className="w-3.5 h-3.5 text-red-600" />,
                   variant: 'danger' as const,
-                  onClick: () => setConfirmAction({ campaign: c, action: 'CANCEL' })
+                  onClick: () => handleDirectStop(c)
                 });
               }
               if (hasPermission('campaigns.delete')) {
@@ -603,6 +623,8 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                   : c.id === 'cmp_nz_master_flow'
                   ? 'End-to-End Master Flow (All Input Types)'
                   : (c.name || 'Outbound Campaign').replace(/^Campaign\s+cmp_nz_/, '').replace(/_/g, ' ');
+
+              const isThisExecuting = executingCampaignId === c.id;
 
               return (
                 <TableRow key={c.id}>
@@ -647,51 +669,77 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                           variant="primary"
                           size="xs"
                           className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
-                          onClick={() => setConfirmAction({ campaign: c, action: 'START' })}
-                          leftIcon={<Play className="w-3 h-3 fill-current" />}
-                          disabled={!hasPermission('campaigns.start')}
-                          title="Start Outbound Campaign"
+                          onClick={() => handleDirectStartOrResume(c, 'START')}
+                          leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
+                          disabled={!hasPermission('campaigns.start') || isThisExecuting}
+                          title="Start Outbound Campaign Immediately"
                         >
-                          Start
+                          {isThisExecuting ? 'Starting...' : 'Start'}
                         </Button>
                       )}
                       {s === 'RUNNING' && (
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          className="border-amber-500 text-amber-700 hover:bg-amber-50 font-medium whitespace-nowrap"
-                          onClick={() => setConfirmAction({ campaign: c, action: 'PAUSE' })}
-                          leftIcon={<Pause className="w-3 h-3" />}
-                          disabled={!hasPermission('campaigns.pause')}
-                          title="Pause Campaign Dialing"
-                        >
-                          Pause
-                        </Button>
+                        <>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            className="border-amber-500 text-amber-700 hover:bg-amber-50 font-medium whitespace-nowrap"
+                            onClick={() => handleDirectPause(c)}
+                            leftIcon={<Pause className="w-3 h-3" />}
+                            disabled={!hasPermission('campaigns.pause')}
+                            title="Pause Campaign Dialing Immediately"
+                          >
+                            Pause
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            className="border-rose-400 text-rose-700 hover:bg-rose-50 font-medium whitespace-nowrap"
+                            onClick={() => handleDirectStop(c)}
+                            leftIcon={<StopCircle className="w-3 h-3 text-rose-600" />}
+                            disabled={!hasPermission('campaigns.cancel')}
+                            title="Stop Campaign Dialing Immediately"
+                          >
+                            Stop
+                          </Button>
+                        </>
                       )}
                       {s === 'PAUSED' && (
-                        <Button
-                          variant="primary"
-                          size="xs"
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
-                          onClick={() => setConfirmAction({ campaign: c, action: 'RESUME' })}
-                          leftIcon={<Play className="w-3 h-3 fill-current" />}
-                          disabled={!hasPermission('campaigns.resume')}
-                          title="Resume Campaign Dialing"
-                        >
-                          Resume
-                        </Button>
+                        <>
+                          <Button
+                            variant="primary"
+                            size="xs"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
+                            onClick={() => handleDirectStartOrResume(c, 'RESUME')}
+                            leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
+                            disabled={!hasPermission('campaigns.resume') || isThisExecuting}
+                            title="Resume Campaign Dialing Immediately"
+                          >
+                            {isThisExecuting ? 'Resuming...' : 'Resume'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            className="border-rose-400 text-rose-700 hover:bg-rose-50 font-medium whitespace-nowrap"
+                            onClick={() => handleDirectStop(c)}
+                            leftIcon={<StopCircle className="w-3 h-3 text-rose-600" />}
+                            disabled={!hasPermission('campaigns.cancel')}
+                            title="Stop Campaign Dialing Immediately"
+                          >
+                            Stop
+                          </Button>
+                        </>
                       )}
                       {(s === 'COMPLETED' || s === 'CANCELLED' || s === 'FAILED') && (
                         <Button
                           variant="outline"
                           size="xs"
                           className="text-slate-600 hover:text-slate-900 border-slate-300 font-medium whitespace-nowrap"
-                          onClick={() => setConfirmAction({ campaign: c, action: 'START' })}
-                          leftIcon={<Play className="w-3 h-3" />}
-                          disabled={!hasPermission('campaigns.start')}
-                          title="Restart Campaign"
+                          onClick={() => handleDirectStartOrResume(c, 'START')}
+                          leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                          disabled={!hasPermission('campaigns.start') || isThisExecuting}
+                          title="Restart Campaign Immediately"
                         >
-                          Start
+                          {isThisExecuting ? 'Starting...' : 'Start'}
                         </Button>
                       )}
                       <Button
@@ -699,8 +747,9 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                         size="xs"
                         onClick={() => setLiveQueueCampaign(c)}
                         leftIcon={<Activity className={`w-3 h-3 ${s === 'RUNNING' ? 'animate-pulse text-emerald-200' : 'text-slate-500'}`} />}
+                        title="Open Live Call Monitor"
                       >
-                        {s === 'RUNNING' ? 'Live' : 'View'}
+                        {s === 'RUNNING' ? 'Live Monitor' : 'View'}
                       </Button>
                       <DropdownMenu items={dropdownItems} />
                     </div>
