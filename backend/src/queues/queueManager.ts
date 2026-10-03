@@ -1,5 +1,5 @@
 import { Queue, QueueEvents, JobsOptions, ConnectionOptions } from 'bullmq';
-import IORedis from 'ioredis';
+import { Redis } from 'ioredis';
 import { env } from '../config/env.js';
 import { logger } from '../middleware/logger.js';
 
@@ -47,7 +47,7 @@ export function getRedisConnectionOptions(): any {
 
   if (process.env.REDIS_URL) {
     // BullMQ allows passing an IORedis instance directly
-    return new IORedis(process.env.REDIS_URL, baseOptions);
+    return new Redis(process.env.REDIS_URL, baseOptions);
   }
 
   return {
