@@ -49,7 +49,7 @@ export class VoiceWebhookService {
 
     if (!attempt) {
       logger.warn({ callAttemptId }, 'CallAttempt not found for /api/voice/twiml');
-      return '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Error loading session. Goodbye.</Say><Hangup/></Response>';
+      return '<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Error loading session. Goodbye.</Say><Hangup/></Response>';
     }
 
     const TERMINAL_CALL_STATUSES: CallStatus[] = [
@@ -60,38 +60,42 @@ export class VoiceWebhookService {
       CallStatus.CANCELLED
     ];
 
-    // Only update attempt status to IN_PROGRESS if not already terminated
-    await prisma.$transaction(async (tx) => {
-      const updateData: {
-        status?: CallStatus;
-        providerCallId?: string | null;
-        providerResponse?: object;
-      } = {
-        providerCallId: payload.CallSid || attempt.providerCallId,
-        providerResponse: (payload as object) || undefined
-      };
+    // Background update: do NOT block Twilio webhook response so call connects instantly (<100ms)
+    setImmediate(async () => {
+      try {
+        const updateData: {
+          status?: CallStatus;
+          providerCallId?: string | null;
+          providerResponse?: object;
+        } = {
+          providerCallId: payload.CallSid || attempt.providerCallId,
+          providerResponse: (payload as object) || undefined
+        };
 
-      if (!TERMINAL_CALL_STATUSES.includes(attempt.status)) {
-        updateData.status = CallStatus.IN_PROGRESS;
-      }
-
-      await tx.callAttempt.update({
-        where: { id: callAttemptId },
-        data: updateData
-      });
-
-      await tx.callJob.update({
-        where: { id: attempt.callJobId },
-        data: { status: CallJobStatus.DISPATCHED }
-      });
-
-      await tx.callEvent.create({
-        data: {
-          callAttemptId,
-          eventType: 'CALL_ANSWERED',
-          payloadJson: (payload as object) || {}
+        if (!TERMINAL_CALL_STATUSES.includes(attempt.status)) {
+          updateData.status = CallStatus.IN_PROGRESS;
         }
-      });
+
+        await prisma.callAttempt.update({
+          where: { id: callAttemptId },
+          data: updateData
+        });
+
+        await prisma.callJob.update({
+          where: { id: attempt.callJobId },
+          data: { status: CallJobStatus.DISPATCHED }
+        });
+
+        await prisma.callEvent.create({
+          data: {
+            callAttemptId,
+            eventType: 'CALL_ANSWERED',
+            payloadJson: (payload as object) || {}
+          }
+        });
+      } catch (err) {
+        logger.warn({ err, callAttemptId }, 'Background update for call connect failed');
+      }
     });
 
     // Identify target starting question
@@ -99,12 +103,12 @@ export class VoiceWebhookService {
     if (!targetQuestionId) {
       const qList = attempt.callJob.campaign.questionnaire?.questions || [];
       if (qList.length === 0) {
-        return '<?xml version="1.0" encoding="UTF-8"?><Response><Say>No questions configured. Goodbye.</Say><Hangup/></Response>';
+        return '<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">No questions configured. Goodbye.</Say><Hangup/></Response>';
       }
       targetQuestionId = qList[0].id;
     }
 
-    return renderQuestionTwiml(callAttemptId, targetQuestionId);
+    return renderQuestionTwiml(callAttemptId, targetQuestionId, 0, attempt);
   }
 
   /**
@@ -117,12 +121,18 @@ export class VoiceWebhookService {
   ): Promise<string> {
     const digits = payload.Digits || '';
 
-    // Record Event
-    await prisma.callEvent.create({
-      data: {
-        callAttemptId,
-        eventType: 'DTMF_GATHERED',
-        payloadJson: { questionId, digits, ...payload }
+    // Record Event in background so Twilio response is not delayed
+    setImmediate(async () => {
+      try {
+        await prisma.callEvent.create({
+          data: {
+            callAttemptId,
+            eventType: 'DTMF_GATHERED',
+            payloadJson: { questionId, digits, ...payload }
+          }
+        });
+      } catch (err) {
+        logger.warn({ err, callAttemptId }, 'Background DTMF callEvent recording failed');
       }
     });
 

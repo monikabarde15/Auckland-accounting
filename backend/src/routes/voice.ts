@@ -58,7 +58,7 @@ voiceRouter.all('/twiml', async (req: Request, res: Response) => {
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather numDigits="1" action="${actionUrl}" method="POST" timeout="10">
-    <Say>${speakText.replace(/[<>&]/g, '')}</Say>
+    <Say voice="alice">${speakText.replace(/[<>&]/g, '')}</Say>
   </Gather>
 </Response>`;
       res.type('text/xml').send(xml);

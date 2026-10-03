@@ -74,9 +74,10 @@ export function buildContactContext(contact: {
 export async function renderQuestionTwiml(
   callAttemptId: string,
   questionId: string,
-  retryCount: number = 0
+  retryCount: number = 0,
+  preloadedAttempt?: any
 ): Promise<string> {
-  const attempt = await prisma.callAttempt.findUnique({
+  const attempt = preloadedAttempt || (await prisma.callAttempt.findUnique({
     where: { id: callAttemptId },
     include: {
       callJob: {
@@ -86,16 +87,18 @@ export async function renderQuestionTwiml(
         }
       }
     }
-  });
+  }));
 
   if (!attempt) {
     return '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Error loading call details. Goodbye.</Say><Hangup/></Response>';
   }
 
-  const question = await prisma.question.findUnique({
-    where: { id: questionId },
-    include: { options: true }
-  });
+  const question =
+    preloadedAttempt?.callJob?.campaign?.questionnaire?.questions?.find((q: any) => q.id === questionId) ||
+    (await prisma.question.findUnique({
+      where: { id: questionId },
+      include: { options: true }
+    }));
 
   if (!question) {
     return '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Questionnaire completed. Thank you for your time. Goodbye.</Say><Hangup/></Response>';
