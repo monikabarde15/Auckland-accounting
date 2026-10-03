@@ -73,7 +73,11 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
   try {
     const body = testLiveCallSchema.parse(req.body);
     const targetNumber = body.phoneNumber.trim();
-    const fromNumber = (env.TWILIO_PHONE_NUMBER || body.callerId || '').trim();
+    let fromNumber = (
+      body.callerId && body.callerId.length > 7 && body.callerId !== '12345'
+        ? body.callerId
+        : env.TWILIO_PHONE_NUMBER || '+17372212163'
+    ).trim();
 
     if (!fromNumber) {
       throw new BadRequestError('Twilio Phone Number (TWILIO_PHONE_NUMBER) is not configured in environment variables.');

@@ -105,13 +105,18 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     activeCallIndexRef.current = activeCallIndex;
   }, [activeCallIndex]);
 
-  // Active Twilio Caller ID
+  // Active Twilio Caller ID (sanitize away dummy values like 12345, 8370000)
   const rawCallerId = campaign.callerId || '';
   const displayCallerId =
-    rawCallerId && !rawCallerId.includes('837 0000') && !rawCallerId.includes('8370000') && !rawCallerId.includes('7372508034') && !rawCallerId.includes('737 250 8034')
+    rawCallerId &&
+    !rawCallerId.includes('837 0000') &&
+    !rawCallerId.includes('8370000') &&
+    !rawCallerId.includes('7372508034') &&
+    !rawCallerId.includes('737 250 8034') &&
+    rawCallerId.length > 7
       ? rawCallerId
-      : (campaign.callerId || '');
-  const dialCallerId = displayCallerId ? displayCallerId.replace(/[\s\-\(\)]/g, '') : undefined;
+      : '+17372212163';
+  const dialCallerId = displayCallerId.replace(/[\s\-\(\)]/g, '');
 
   // Initialize queue items (all contacts queued without DNC suppression) and begin auto-dialing
   useEffect(() => {
@@ -499,7 +504,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
         autoDialRef.current = setTimeout(() => {
           dialNextContact();
         }, dialSpeed === 'FAST' ? 1200 : 2500);
-      } else {
+      } else if (queueItems.length > 0) {
         setIsAutoDialing(false);
       }
     }
