@@ -66,7 +66,7 @@ voiceRouter.all('/twiml', async (req: Request, res: Response) => {
     }
 
     if (!callAttemptId) {
-      res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Aria-Neural" language="en-NZ">Kia ora, thank you for calling Auckland Accounting.</Say><Hangup/></Response>');
+      res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Kia ora, thank you for calling Auckland Accounting.</Say><Hangup/></Response>');
       return;
     }
 
@@ -74,7 +74,7 @@ voiceRouter.all('/twiml', async (req: Request, res: Response) => {
     res.type('text/xml').send(xml);
   } catch (error) {
     logger.error({ error: (error as Error).message, callAttemptId }, 'Error rendering initial TwiML');
-    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Aria-Neural" language="en-NZ">Kia ora. Auckland Accounting campaign connected.</Say><Hangup/></Response>');
+    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Kia ora. Auckland Accounting campaign connected.</Say><Hangup/></Response>');
   }
 });
 
@@ -97,9 +97,9 @@ voiceRouter.post('/gather', async (req: Request, res: Response) => {
 
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aria-Neural" language="en-NZ">${confirmationText}</Say>
+  <Say voice="alice">${confirmationText}</Say>
   <Pause length="1"/>
-  <Say voice="Polly.Aria-Neural" language="en-NZ">Have a wonderful day. Goodbye.</Say>
+  <Say voice="alice">Have a wonderful day. Goodbye.</Say>
   <Hangup/>
 </Response>`;
       res.type('text/xml').send(xml);
@@ -110,7 +110,7 @@ voiceRouter.post('/gather', async (req: Request, res: Response) => {
     res.type('text/xml').send(xml);
   } catch (error) {
     logger.error({ error: (error as Error).message, callAttemptId, questionId }, 'Error handling IVR gather');
-    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Aria-Neural" language="en-NZ">Thank you for your response. Goodbye.</Say><Hangup/></Response>');
+    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Thank you for your response. Goodbye.</Say><Hangup/></Response>');
   }
 });
 
