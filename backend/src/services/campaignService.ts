@@ -1,4 +1,5 @@
 import { prisma } from './prisma.js';
+import { callWorker } from '../workers/callWorker.js';
 import { CampaignStatus, CallJobStatus } from '@prisma/client';
 import { validateCampaignForLaunch } from './campaignValidationService.js';
 import { normalizePhoneNumber } from '../utils/phone.js';
@@ -647,7 +648,6 @@ export async function transitionCampaignStatus(
         if (!enqueuedViaBullMQ || process.env.RENDER) {
           logger.info({ callJobId: job.id, render: Boolean(process.env.RENDER) }, 'Direct call dispatch');
           try {
-            const { callWorker } = await import('../workers/callWorker.js');
             void callWorker.processCallJob({
               id: `direct-${job.id}`,
               data: {
