@@ -156,7 +156,7 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
         env.TWILIO_WEBHOOK_BASE_URL ||
         process.env.RENDER_EXTERNAL_URL ||
         env.BASE_URL ||
-        'https://auckland-accountin.onrender.com';
+        'https://auckland-accounting.onrender.com';
       callOptions.url = `${webhookBase.replace(/\/+$/, '')}/api/voice/twiml?prompt=${encodeURIComponent(speakText)}`;
 
       const call = await client.calls.create(callOptions);

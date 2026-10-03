@@ -131,6 +131,8 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
       return;
     }
 
+    hasEndedRef.current = false;
+    isDialingRef.current = false;
     const items: QueueItem[] = targetContacts.map((contact) => ({
       contact,
       status: 'QUEUED',
@@ -139,7 +141,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     }));
 
     setQueueItems(items);
-    setIsAutoDialing(false);
+    setIsAutoDialing(true);
   }, [isOpen, targetContacts]);
 
   // Live call seconds counter
