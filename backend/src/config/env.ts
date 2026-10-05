@@ -7,17 +7,23 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 
 const sanitizeString = (val: unknown) => {
-  if (typeof val === 'string' && val.trim() === '') {
-    return undefined;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed === '') return undefined;
+    return trimmed;
   }
   return val;
 };
 
 const sanitizeBaseUrl = (val: unknown) => {
-  if (typeof val !== 'string' || !val.trim() || val === '/' || !val.startsWith('http')) {
-    return process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5000';
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed && trimmed !== '/' && trimmed.startsWith('http')) {
+      return trimmed;
+    }
   }
-  return val;
+  const fallback = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5000';
+  return typeof fallback === 'string' ? fallback.trim() : fallback;
 };
 
 export const envSchema = z
