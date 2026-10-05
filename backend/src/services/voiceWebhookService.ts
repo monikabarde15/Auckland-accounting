@@ -31,6 +31,7 @@ export class VoiceWebhookService {
       include: {
         callJob: {
           include: {
+            contact: true,
             campaign: {
               include: {
                 questionnaire: {
