@@ -12,7 +12,8 @@ export const voiceRouter = Router();
  * or X-Forwarded-Proto to reconstruct the correct URL for signature validation.
  */
 function getPublicUrl(req: Request): string {
-  const webhookBase = (process.env.TWILIO_WEBHOOK_BASE_URL || '').replace(/\/+$/, '');
+  const rawBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
+  const webhookBase = (typeof rawBaseUrl === 'string' ? rawBaseUrl.trim() : '').replace(/\/+$/, '');
   if (webhookBase && webhookBase.startsWith('https://')) {
     // Use the configured base URL — guaranteed to match what Twilio signed
     return `${webhookBase}${req.originalUrl}`;
@@ -53,7 +54,8 @@ voiceRouter.all(['/twiml', '/twiml/:callAttemptId/:questionId'], async (req: Req
     // 1. Direct dynamic test call with custom campaign prompt
     if (prompt || (!callAttemptId && campaignId)) {
       const speakText = prompt || 'Kia ora. This is an automated message from Auckland Accounting regarding your account.';
-      const baseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || `https://${req.get('host')}`;
+      const rawBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
+      const baseUrl = (typeof rawBaseUrl === 'string' ? rawBaseUrl.trim() : `https://${req.get('host')}`).replace(/\/+$/, '');
       const actionUrl = `${baseUrl}/api/voice/gather?campaignId=${encodeURIComponent(campaignId || '')}`;
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
