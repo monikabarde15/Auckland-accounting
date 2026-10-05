@@ -118,7 +118,7 @@ export async function renderQuestionTwiml(
   }
 
   const webhookBase = (env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL).replace(/\/+$/, '');
-  const gatherActionUrl = `${webhookBase}/api/voice/gather?callAttemptId=${encodeURIComponent(callAttemptId)}&amp;questionId=${encodeURIComponent(questionId)}`;
+  const gatherActionUrl = `${webhookBase}/api/voice/gather/${encodeURIComponent(callAttemptId)}/${encodeURIComponent(questionId)}`;
 
   const escapeXml = (unsafe: string) =>
     unsafe.replace(/[<>&'"]/g, (c) => {
@@ -249,7 +249,7 @@ export async function processGatheredResponse(
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">That is an invalid selection. Let us try once more.</Say>
-  <Redirect method="POST">${webhookBase}/api/voice/twiml?callAttemptId=${encodeURIComponent(callAttemptId)}&amp;questionId=${encodeURIComponent(questionId)}</Redirect>
+  <Redirect method="POST">${webhookBase}/api/voice/twiml/${encodeURIComponent(callAttemptId)}/${encodeURIComponent(questionId)}</Redirect>
 </Response>`;
   }
 

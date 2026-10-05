@@ -42,9 +42,9 @@ function requireTwilioSignature(req: Request, res: Response, next: () => void) {
 /**
  * Serves initial TwiML when outbound call connects.
  */
-voiceRouter.all('/twiml', async (req: Request, res: Response) => {
-  const callAttemptId = (req.query.callAttemptId || req.body.callAttemptId) as string;
-  const questionId = (req.query.questionId || req.body.questionId) as string | undefined;
+voiceRouter.all(['/twiml', '/twiml/:callAttemptId/:questionId'], async (req: Request, res: Response) => {
+  const callAttemptId = (req.params.callAttemptId || req.query.callAttemptId || req.body.callAttemptId) as string;
+  const questionId = (req.params.questionId || req.query.questionId || req.body.questionId) as string | undefined;
   const prompt = (req.query.prompt || req.body.prompt) as string | undefined;
   const campaignId = (req.query.campaignId || req.body.campaignId) as string | undefined;
   const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
@@ -81,9 +81,9 @@ voiceRouter.all('/twiml', async (req: Request, res: Response) => {
 /**
  * Handles gathered DTMF digits from Twilio IVR.
  */
-voiceRouter.post('/gather', async (req: Request, res: Response) => {
-  const callAttemptId = (req.query.callAttemptId || req.body.callAttemptId) as string;
-  const questionId = (req.query.questionId || req.body.questionId) as string;
+voiceRouter.post(['/gather', '/gather/:callAttemptId/:questionId'], async (req: Request, res: Response) => {
+  const callAttemptId = (req.params.callAttemptId || req.query.callAttemptId || req.body.callAttemptId) as string;
+  const questionId = (req.params.questionId || req.query.questionId || req.body.questionId) as string;
   const digits = (req.body.Digits || req.query.Digits || '') as string;
   const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
 
