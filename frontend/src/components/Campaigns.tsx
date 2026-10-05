@@ -403,7 +403,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               <Button
                 variant="danger"
                 size="sm"
-                onClick={handleEmergencyStopAll}
+                onClick={() => setIsEmergencyStopConfirmOpen(true)}
                 leftIcon={<AlertOctagon className="w-3.5 h-3.5" />}
                 title="Immediately halt all running outbound calls"
               >
@@ -560,21 +560,21 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                 dropdownItems.push({
                   label: 'Start Campaign',
                   icon: <Play className="w-3.5 h-3.5 text-emerald-600" />,
-                  onClick: () => handleDirectStartOrResume(c, 'START')
+                  onClick: () => setConfirmAction({ campaign: c, action: 'START' })
                 });
               }
               if (s === 'RUNNING' && hasPermission('campaigns.pause')) {
                 dropdownItems.push({
                   label: 'Pause Campaign',
                   icon: <Pause className="w-3.5 h-3.5 text-amber-600" />,
-                  onClick: () => handleDirectPause(c)
+                  onClick: () => setConfirmAction({ campaign: c, action: 'PAUSE' })
                 });
               }
               if (s === 'PAUSED' && hasPermission('campaigns.resume')) {
                 dropdownItems.push({
                   label: 'Resume Campaign',
                   icon: <Play className="w-3.5 h-3.5 text-emerald-600" />,
-                  onClick: () => handleDirectStartOrResume(c, 'RESUME')
+                  onClick: () => setConfirmAction({ campaign: c, action: 'RESUME' })
                 });
               }
               if (s !== 'RUNNING' && hasPermission('campaigns.edit')) {
@@ -597,7 +597,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                   label: 'Cancel Campaign',
                   icon: <StopCircle className="w-3.5 h-3.5 text-red-600" />,
                   variant: 'danger' as const,
-                  onClick: () => handleDirectStop(c)
+                  onClick: () => setConfirmAction({ campaign: c, action: 'CANCEL' })
                 });
               }
               if (hasPermission('campaigns.delete')) {
@@ -669,10 +669,10 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                           variant="primary"
                           size="xs"
                           className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
-                          onClick={() => handleDirectStartOrResume(c, 'START')}
+                          onClick={() => setConfirmAction({ campaign: c, action: 'START' })}
                           leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
                           disabled={!hasPermission('campaigns.start') || isThisExecuting}
-                          title="Start Outbound Campaign Immediately"
+                          title="Start Outbound Campaign"
                         >
                           {isThisExecuting ? 'Starting...' : 'Start'}
                         </Button>
@@ -683,10 +683,10 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                             variant="outline"
                             size="xs"
                             className="border-amber-500 text-amber-700 hover:bg-amber-50 font-medium whitespace-nowrap"
-                            onClick={() => handleDirectPause(c)}
+                            onClick={() => setConfirmAction({ campaign: c, action: 'PAUSE' })}
                             leftIcon={<Pause className="w-3 h-3" />}
                             disabled={!hasPermission('campaigns.pause')}
-                            title="Pause Campaign Dialing Immediately"
+                            title="Pause Campaign Dialing"
                           >
                             Pause
                           </Button>
@@ -694,10 +694,10 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                             variant="outline"
                             size="xs"
                             className="border-rose-400 text-rose-700 hover:bg-rose-50 font-medium whitespace-nowrap"
-                            onClick={() => handleDirectStop(c)}
+                            onClick={() => setConfirmAction({ campaign: c, action: 'CANCEL' })}
                             leftIcon={<StopCircle className="w-3 h-3 text-rose-600" />}
                             disabled={!hasPermission('campaigns.cancel')}
-                            title="Stop Campaign Dialing Immediately"
+                            title="Stop Campaign Dialing"
                           >
                             Stop
                           </Button>
@@ -709,10 +709,10 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                             variant="primary"
                             size="xs"
                             className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
-                            onClick={() => handleDirectStartOrResume(c, 'RESUME')}
+                            onClick={() => setConfirmAction({ campaign: c, action: 'RESUME' })}
                             leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
                             disabled={!hasPermission('campaigns.resume') || isThisExecuting}
-                            title="Resume Campaign Dialing Immediately"
+                            title="Resume Campaign Dialing"
                           >
                             {isThisExecuting ? 'Resuming...' : 'Resume'}
                           </Button>
@@ -720,10 +720,10 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                             variant="outline"
                             size="xs"
                             className="border-rose-400 text-rose-700 hover:bg-rose-50 font-medium whitespace-nowrap"
-                            onClick={() => handleDirectStop(c)}
+                            onClick={() => setConfirmAction({ campaign: c, action: 'CANCEL' })}
                             leftIcon={<StopCircle className="w-3 h-3 text-rose-600" />}
                             disabled={!hasPermission('campaigns.cancel')}
-                            title="Stop Campaign Dialing Immediately"
+                            title="Stop Campaign Dialing"
                           >
                             Stop
                           </Button>
@@ -734,10 +734,10 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                           variant="outline"
                           size="xs"
                           className="text-slate-600 hover:text-slate-900 border-slate-300 font-medium whitespace-nowrap"
-                          onClick={() => handleDirectStartOrResume(c, 'START')}
+                          onClick={() => setConfirmAction({ campaign: c, action: 'START' })}
                           leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                           disabled={!hasPermission('campaigns.start') || isThisExecuting}
-                          title="Restart Campaign Immediately"
+                          title="Restart Campaign"
                         >
                           {isThisExecuting ? 'Starting...' : 'Start'}
                         </Button>
@@ -856,7 +856,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
           isOpen={!!confirmAction}
           onClose={() => setConfirmAction(null)}
           onConfirm={handleExecuteStateAction}
-          title={`Confirm Campaign ${confirmAction.action}`}
+          title={`Confirm Campaign ${confirmAction.action === 'CANCEL' ? 'STOP' : confirmAction.action}`}
           confirmLabel={
             confirmAction.action === 'START'
               ? 'Start Outbound Dialing'
@@ -864,15 +864,19 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               ? 'Pause Calling'
               : confirmAction.action === 'RESUME'
               ? 'Resume Calling'
+              : confirmAction.action === 'CANCEL'
+              ? 'Stop Campaign'
               : undefined
           }
+          cancelLabel="Go Back"
           variant={confirmAction.action === 'CANCEL' || confirmAction.action === 'DELETE' ? 'danger' : 'primary'}
           message={
             <span>
-              Are you sure you want to <strong>{confirmAction.action.toLowerCase()}</strong> campaign "
+              Are you sure you want to <strong>{confirmAction.action === 'CANCEL' ? 'stop' : confirmAction.action.toLowerCase()}</strong> campaign "
               {confirmAction.campaign.name}"?
               {confirmAction.action === 'START' && ' This will initiate automated outbound calling to the target audience.'}
-              {confirmAction.action === 'CANCEL' && ' Cancelled campaigns cannot be restarted.'}
+              {confirmAction.action === 'RESUME' && ' Outbound calling will continue for the remaining contacts.'}
+              {confirmAction.action === 'CANCEL' && ' All in-flight and pending calls for this campaign will be stopped.'}
               {confirmAction.action === 'DELETE' && ' All campaign configuration and records will be permanently removed.'}
             </span>
           }
