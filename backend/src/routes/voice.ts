@@ -74,37 +74,52 @@ voiceRouter.all('/twiml/:callAttemptId?/:questionId?', async (req: Request, res:
 
 /**
  * Handles gathered DTMF digits from Twilio IVR.
+ * Supports /api/voice/gather, /api/voice/gather/:callAttemptId, and /api/voice/gather/:callAttemptId/:questionId
+ * Handles both GET and POST requests gracefully and returns 200 OK TwiML under all scenarios.
  */
-voiceRouter.post('/gather/:callAttemptId?/:questionId?', async (req: Request, res: Response) => {
-  const callAttemptId = (req.params.callAttemptId || req.query.callAttemptId || req.body.callAttemptId) as string;
-  const questionId = (req.params.questionId || req.query.questionId || req.body.questionId) as string;
+voiceRouter.all('/gather*', async (req: Request, res: Response) => {
+  const pathParts = req.path.split('/').filter(Boolean); // e.g. ['gather', 'attempt123', 'q456']
+  const callAttemptId = (req.params.callAttemptId || req.query.callAttemptId || req.body.callAttemptId || pathParts[1] || '') as string;
+  const questionId = (req.params.questionId || req.query.questionId || req.body.questionId || pathParts[2] || '') as string;
   const digits = (req.body.Digits || req.query.Digits || '') as string;
   const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
 
   try {
-    if (!callAttemptId) {
+    let xml = '';
+    if (callAttemptId && callAttemptId !== 'gather') {
+      xml = await voiceWebhookService.handleGather(callAttemptId, questionId, payload);
+    }
+    
+    if (!xml || xml.trim() === '') {
       const confirmationText = digits === '1'
         ? 'Thank you. Your confirmation has been recorded successfully.'
         : digits === '2'
         ? 'Thank you. We have noted your response.'
         : `Thank you. You pressed ${digits}. Your response has been recorded.`;
 
-      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+      xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${confirmationText}</Say>
   <Pause length="1"/>
   <Say voice="alice">Have a wonderful day. Goodbye.</Say>
   <Hangup/>
 </Response>`;
-      res.type('text/xml').send(xml);
-      return;
     }
-
-    const xml = await voiceWebhookService.handleGather(callAttemptId, questionId, payload);
-    res.type('text/xml').send(xml);
+    res.status(200).type('text/xml').send(xml);
   } catch (error) {
     logger.error({ error: (error as Error).message, callAttemptId, questionId }, 'Error handling IVR gather');
-    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Thank you for your response. Goodbye.</Say><Hangup/></Response>');
+    const confirmationText = digits === '1'
+      ? 'Thank you. Your confirmation has been recorded successfully.'
+      : digits === '2'
+      ? 'Thank you. We have noted your response.'
+      : `Thank you for your response.`;
+    res.status(200).type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">${confirmationText}</Say>
+  <Pause length="1"/>
+  <Say voice="alice">Goodbye.</Say>
+  <Hangup/>
+</Response>`);
   }
 });
 
