@@ -79,7 +79,25 @@ export function buildContactContext(contact: {
   };
 }
 
-export function getCanonicalWebhookBase(): string {
+export function getCanonicalWebhookBase(req?: any): string {
+  // 1. Explicitly configured Twilio Webhook URL always wins
+  if (env.TWILIO_WEBHOOK_BASE_URL) return env.TWILIO_WEBHOOK_BASE_URL;
+
+  // 2. If called within an Express request context, dynamically infer the host
+  if (req) {
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    if (host) {
+      return `${proto}://${host}`;
+    }
+  }
+
+  // 3. Fallback to computed BASE_URL (from env variables)
+  if (env.BASE_URL && !env.BASE_URL.includes('localhost')) {
+    return env.BASE_URL;
+  }
+
+  // 4. Hard fallback to the user's specific Render production domain
   return 'https://auckland-accountin.onrender.com';
 }
 

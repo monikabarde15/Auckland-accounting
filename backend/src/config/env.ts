@@ -22,7 +22,11 @@ const sanitizeBaseUrl = (val: unknown) => {
       return trimmed;
     }
   }
-  const fallback = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5000';
+  let fallback = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL;
+  if (!fallback && process.env.VERCEL_URL) {
+    fallback = `https://${process.env.VERCEL_URL}`;
+  }
+  fallback = fallback || 'http://localhost:5000';
   return typeof fallback === 'string' ? fallback.trim() : fallback;
 };
 

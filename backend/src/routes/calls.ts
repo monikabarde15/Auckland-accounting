@@ -179,7 +179,7 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
         from: fromNumber
       };
 
-      const webhookBase = getCanonicalWebhookBase();
+      const webhookBase = getCanonicalWebhookBase(req);
       callOptions.url = `${webhookBase}/api/voice/twiml?prompt=${encodeURIComponent(speakText)}`;
 
       const call = await client.calls.create(callOptions);

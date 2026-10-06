@@ -120,8 +120,14 @@ export async function evaluateAndScheduleRetry(
     outcomeMatchesPolicy = true;
     reasonTag = 'NO_ANSWER';
   } else if (finalStatus === CallStatus.FAILED && campaign.retryOnFailed) {
-    outcomeMatchesPolicy = true;
-    reasonTag = 'TEMPORARY_FAILURE';
+    // Prevent retry loops for Twilio infrastructure/routing errors (e.g., 11200 HTTP retrieval failure)
+    if (failureReason && (failureReason.includes('11200') || failureReason.includes('11205'))) {
+      logger.warn({ callJobId: callJob.id, failureReason }, 'Skipping retry due to infrastructure error');
+      outcomeMatchesPolicy = false;
+    } else {
+      outcomeMatchesPolicy = true;
+      reasonTag = 'TEMPORARY_FAILURE';
+    }
   }
 
   if (!outcomeMatchesPolicy) {

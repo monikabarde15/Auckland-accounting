@@ -13,7 +13,7 @@ export const voiceRouter = Router();
  * or X-Forwarded-Proto to reconstruct the correct URL for signature validation.
  */
 function getPublicUrl(req: Request): string {
-  const baseUrl = getCanonicalWebhookBase();
+  const baseUrl = getCanonicalWebhookBase(req);
   return `${baseUrl}${req.originalUrl}`;
 }
 
@@ -47,7 +47,7 @@ voiceRouter.all('/twiml/:callAttemptId?/:questionId?', async (req: Request, res:
     // 1. Direct dynamic test call with custom campaign prompt
     if (prompt || (!callAttemptId && campaignId)) {
       const speakText = prompt || 'Kia ora. This is an automated message from Auckland Accounting regarding your account.';
-      const baseUrl = getCanonicalWebhookBase();
+      const baseUrl = getCanonicalWebhookBase(req);
       const actionUrl = `${baseUrl}/api/voice/gather?campaignId=${encodeURIComponent(campaignId || '')}`;
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
