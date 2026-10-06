@@ -1,6 +1,7 @@
 import twilio from 'twilio';
 import { env } from '../../config/env.js';
 import { logger } from '../../middleware/logger.js';
+import { getCanonicalWebhookBase } from '../ivr/ivrEngine.js';
 
 export interface CreateCallOptions {
   to: string; // E.164 phone number
@@ -62,7 +63,7 @@ export class TwilioService {
    */
   public async createOutboundCall(options: CreateCallOptions): Promise<CreateCallResult> {
     const callerId = env.TWILIO_PHONE_NUMBER || options.from || this.defaultCallerId;
-    const webhookBase = this.webhookBaseUrl.replace(/\/+$/, '');
+    const webhookBase = getCanonicalWebhookBase();
     const twimlUrl = options.twimlUrl || `${webhookBase}/api/voice/twiml?callAttemptId=${encodeURIComponent(options.callAttemptId)}`;
     const statusCallback = options.statusCallbackUrl || `${webhookBase}/api/voice/status?callAttemptId=${encodeURIComponent(options.callAttemptId)}`;
 
