@@ -84,6 +84,21 @@ voiceRouter.all('/gather*', async (req: Request, res: Response) => {
   const digits = (req.body.Digits || req.query.Digits || '') as string;
   const payload: TwilioWebhookPayload = { ...(req.query as Record<string, string>), ...(req.body as Record<string, string>) };
 
+  logger.info(
+    {
+      method: req.method,
+      url: req.url,
+      path: req.path,
+      pathParts,
+      callAttemptId,
+      questionId,
+      digits,
+      body: req.body,
+      query: req.query
+    },
+    '[TWILIO GATHER WEBHOOK RECEIVED]'
+  );
+
   try {
     let xml = '';
     if (callAttemptId && callAttemptId !== 'gather') {
@@ -105,21 +120,24 @@ voiceRouter.all('/gather*', async (req: Request, res: Response) => {
   <Hangup/>
 </Response>`;
     }
+
+    logger.info({ callAttemptId, questionId, digits, xmlLength: xml.length, xmlSnippet: xml.substring(0, 150) }, '[TWILIO GATHER RESPONDING TWIML]');
     res.status(200).type('text/xml').send(xml);
   } catch (error) {
-    logger.error({ error: (error as Error).message, callAttemptId, questionId }, 'Error handling IVR gather');
+    logger.error({ error: (error as Error).message, stack: (error as Error).stack, callAttemptId, questionId, digits }, '[TWILIO GATHER ERROR]');
     const confirmationText = digits === '1'
       ? 'Thank you. Your confirmation has been recorded successfully.'
       : digits === '2'
       ? 'Thank you. We have noted your response.'
       : `Thank you for your response.`;
-    res.status(200).type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
+    const fallbackXml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${confirmationText}</Say>
   <Pause length="1"/>
   <Say voice="alice">Goodbye.</Say>
   <Hangup/>
-</Response>`);
+</Response>`;
+    res.status(200).type('text/xml').send(fallbackXml);
   }
 });
 
