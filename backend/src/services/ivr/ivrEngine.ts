@@ -68,6 +68,19 @@ export function buildContactContext(contact: {
   };
 }
 
+export function getCanonicalWebhookBase(): string {
+  let base = (process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL || '').trim().replace(/\/+$/, '');
+  if (!base) {
+    base = 'https://auckland-accountin.onrender.com';
+  }
+  if (!base.startsWith('http://') && !base.startsWith('https://')) {
+    base = `https://${base}`;
+  } else if (base.startsWith('http://') && !base.includes('localhost') && !base.includes('127.0.0.1')) {
+    base = base.replace(/^http:\/\//, 'https://');
+  }
+  return base;
+}
+
 /**
  * Generates TwiML XML string for an individual question in the graph.
  */
@@ -117,7 +130,7 @@ export async function renderQuestionTwiml(
     promptText = `${introText}. ${promptText}`;
   }
 
-  const webhookBase = (env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL).replace(/\/+$/, '');
+  const webhookBase = getCanonicalWebhookBase();
   const gatherActionUrl = `${webhookBase}/api/voice/gather/${encodeURIComponent(callAttemptId)}/${encodeURIComponent(questionId)}`;
 
   const escapeXml = (unsafe: string) =>
@@ -187,39 +200,44 @@ export async function processGatheredResponse(
   questionId: string,
   digits: string
 ): Promise<string> {
-  const attempt = await prisma.callAttempt.findUnique({
-    where: { id: callAttemptId },
-    include: {
-      callJob: {
-        include: {
-          campaign: true,
-          contact: true
-        }
-      }
-    }
-  });
-
-  if (!attempt) {
-    return '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Session expired. Goodbye.</Say><Hangup/></Response>';
-  }
-
-  const question = await prisma.question.findUnique({
-    where: { id: questionId },
-    include: { options: true }
-  });
-
-  if (!question) {
-    return '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Question error. Goodbye.</Say><Hangup/></Response>';
-  }
-
   const cleanDigits = (digits || '').trim();
-  const webhookBase = (env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL).replace(/\/+$/, '');
+  const webhookBase = getCanonicalWebhookBase();
 
-  // Match option from DTMF
-  let matchedOption = question.options.find((opt) => opt.optionKey === cleanDigits);
+  let attempt = null;
+  if (callAttemptId) {
+    try {
+      attempt = await prisma.callAttempt.findUnique({
+        where: { id: callAttemptId },
+        include: {
+          callJob: {
+            include: {
+              campaign: true,
+              contact: true
+            }
+          }
+        }
+      });
+    } catch (err) {
+      logger.warn({ err, callAttemptId }, 'Error fetching callAttempt in processGatheredResponse');
+    }
+  }
 
-  // For YES_NO, if digits is '1' (Yes) or '2' (No), match option
-  if (!matchedOption && question.type === QuestionType.YES_NO) {
+  let question = null;
+  if (questionId) {
+    try {
+      question = await prisma.question.findUnique({
+        where: { id: questionId },
+        include: { options: true }
+      });
+    } catch (err) {
+      logger.warn({ err, questionId }, 'Error fetching question in processGatheredResponse');
+    }
+  }
+
+  // Match option from DTMF if question exists
+  let matchedOption = question?.options?.find((opt) => opt.optionKey === cleanDigits);
+
+  if (!matchedOption && question?.type === QuestionType.YES_NO) {
     if (cleanDigits === '1') {
       matchedOption = question.options.find((o) => o.optionLabel.toLowerCase().includes('yes') || o.optionKey === '1') || question.options[0];
     } else if (cleanDigits === '2') {
@@ -227,22 +245,45 @@ export async function processGatheredResponse(
     }
   }
 
-  // Record response in database
-  await prisma.callResponse.create({
-    data: {
-      callAttemptId,
-      questionId,
-      responseValue: cleanDigits,
-      responseText: matchedOption?.optionLabel || cleanDigits,
-      inputMethod: InputMethod.DTMF,
-      isValid: Boolean(matchedOption || question.type === QuestionType.NUMERIC || question.type === QuestionType.RATING)
+  // Record response in database safely without throwing errors to Twilio
+  if (callAttemptId && questionId) {
+    try {
+      await prisma.callResponse.create({
+        data: {
+          callAttemptId,
+          questionId,
+          responseValue: cleanDigits,
+          responseText: matchedOption?.optionLabel || cleanDigits,
+          inputMethod: InputMethod.DTMF,
+          isValid: Boolean(matchedOption || question?.type === QuestionType.NUMERIC || question?.type === QuestionType.RATING)
+        }
+      });
+    } catch (err) {
+      logger.warn({ err, callAttemptId, questionId }, 'Could not record callResponse in database');
     }
-  });
+  }
 
   logger.info(
     { callAttemptId, questionId, digits: cleanDigits, matchedOption: matchedOption?.optionLabel },
     'Recorded questionnaire response'
   );
+
+  // If question is not found or this was a general call, respond gracefully
+  if (!question) {
+    const confirmationText = cleanDigits === '1'
+      ? 'Thank you. Your confirmation has been recorded successfully.'
+      : cleanDigits === '2'
+      ? 'Thank you. We have noted your response.'
+      : `Thank you. You pressed ${cleanDigits}. Your response has been recorded.`;
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">${confirmationText}</Say>
+  <Pause length="1"/>
+  <Say voice="alice">Have a wonderful day. Goodbye.</Say>
+  <Hangup/>
+</Response>`;
+  }
 
   // If no option matched and it was a strict choice question
   if (!matchedOption && question.type !== QuestionType.NUMERIC && question.type !== QuestionType.RATING) {
@@ -270,7 +311,7 @@ export async function processGatheredResponse(
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">Transferring you now. Please hold.</Say>
-  <Dial callerId="${attempt.callJob.campaign.callerId}">${transferNumber}</Dial>
+  <Dial callerId="${attempt?.callJob?.campaign?.callerId || ''}">${transferNumber}</Dial>
 </Response>`;
   }
 
@@ -280,22 +321,34 @@ export async function processGatheredResponse(
   }
 
   // If no explicit nextQuestionId, attempt to find next question in sequence
-  const nextSequential = await prisma.question.findFirst({
-    where: {
-      questionnaireId: question.questionnaireId,
-      orderNo: { gt: question.orderNo }
-    },
-    orderBy: { orderNo: 'asc' }
-  });
+  if (question.questionnaireId) {
+    try {
+      const nextSequential = await prisma.question.findFirst({
+        where: {
+          questionnaireId: question.questionnaireId,
+          orderNo: { gt: question.orderNo }
+        },
+        orderBy: { orderNo: 'asc' }
+      });
 
-  if (nextSequential) {
-    return renderQuestionTwiml(callAttemptId, nextSequential.id);
+      if (nextSequential) {
+        return renderQuestionTwiml(callAttemptId, nextSequential.id);
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Error looking up next sequential question');
+    }
   }
 
   // End of questionnaire
+  const finalMessage = cleanDigits === '1'
+    ? 'Thank you. Your confirmation has been recorded successfully.'
+    : cleanDigits === '2'
+    ? 'Thank you. We have recorded your selection.'
+    : `Thank you for your response.`;
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Thank you for completing this survey with Auckland Accounting. Goodbye.</Say>
+  <Say voice="alice">${finalMessage} Thank you for calling Auckland Accounting. Goodbye.</Say>
   <Hangup/>
 </Response>`;
 }

@@ -8,6 +8,7 @@ import { env } from '../config/env.js';
 import { BadRequestError } from '../errors/AppError.js';
 import { CallStatus } from '@prisma/client';
 import { logger } from '../middleware/logger.js';
+import { getCanonicalWebhookBase } from '../services/ivr/ivrEngine.js';
 
 export const callsRouter = Router();
 
@@ -152,12 +153,8 @@ callsRouter.post('/test-live', requirePermission('calls.execute'), async (req: R
         from: fromNumber
       };
 
-      const webhookBase =
-        env.TWILIO_WEBHOOK_BASE_URL ||
-        process.env.RENDER_EXTERNAL_URL ||
-        env.BASE_URL ||
-        'https://auckland-accounting.onrender.com';
-      callOptions.url = `${webhookBase.replace(/\/+$/, '')}/api/voice/twiml?prompt=${encodeURIComponent(speakText)}`;
+      const webhookBase = getCanonicalWebhookBase();
+      callOptions.url = `${webhookBase}/api/voice/twiml?prompt=${encodeURIComponent(speakText)}`;
 
       const call = await client.calls.create(callOptions);
 

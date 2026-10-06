@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { voiceWebhookService, TwilioWebhookPayload } from '../services/voiceWebhookService.js';
 import { twilioService } from '../services/twilio/twilioService.js';
+import { getCanonicalWebhookBase } from '../services/ivr/ivrEngine.js';
 import { logger } from '../middleware/logger.js';
 
 export const voiceRouter = Router();
@@ -12,16 +13,8 @@ export const voiceRouter = Router();
  * or X-Forwarded-Proto to reconstruct the correct URL for signature validation.
  */
 function getPublicUrl(req: Request): string {
-  const rawBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
-  const webhookBase = (typeof rawBaseUrl === 'string' ? rawBaseUrl.trim() : '').replace(/\/+$/, '');
-  if (webhookBase && webhookBase.startsWith('https://')) {
-    // Use the configured base URL — guaranteed to match what Twilio signed
-    return `${webhookBase}${req.originalUrl}`;
-  }
-  // Fallback: honour X-Forwarded-Proto header set by reverse proxies
-  const proto = req.headers['x-forwarded-proto'] || req.protocol;
-  const host = req.headers['x-forwarded-host'] || req.get('host');
-  return `${proto}://${host}${req.originalUrl}`;
+  const baseUrl = getCanonicalWebhookBase();
+  return `${baseUrl}${req.originalUrl}`;
 }
 
 /**
@@ -54,8 +47,7 @@ voiceRouter.all('/twiml/:callAttemptId?/:questionId?', async (req: Request, res:
     // 1. Direct dynamic test call with custom campaign prompt
     if (prompt || (!callAttemptId && campaignId)) {
       const speakText = prompt || 'Kia ora. This is an automated message from Auckland Accounting regarding your account.';
-      const rawBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
-      const baseUrl = (typeof rawBaseUrl === 'string' ? rawBaseUrl.trim() : `https://${req.get('host')}`).replace(/\/+$/, '');
+      const baseUrl = getCanonicalWebhookBase();
       const actionUrl = `${baseUrl}/api/voice/gather?campaignId=${encodeURIComponent(campaignId || '')}`;
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

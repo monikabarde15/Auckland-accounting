@@ -141,7 +141,7 @@ export const LiveCampaignQueueModal: React.FC<LiveCampaignQueueModalProps> = ({
     }));
 
     setQueueItems(items);
-    setIsAutoDialing(true);
+    setIsAutoDialing(false);
   }, [isOpen, targetContacts]);
 
   // Live call seconds counter
