@@ -666,8 +666,8 @@ export async function transitionCampaignStatus(
               }
             }
 
-            // Direct in-process dispatch with duplicate-call guard (skip if already initiated in last 45s)
-            if (!enqueuedViaBullMQ || process.env.RENDER) {
+            // DO NOT fallback to direct dispatch if successfully enqueued via BullMQ, even on Render, to avoid double-dials.
+            if (!enqueuedViaBullMQ) {
               const recentAttempt = await prisma.callAttempt.findFirst({
                 where: {
                   callJob: { contactId: target.contactId },
