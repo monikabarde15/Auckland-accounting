@@ -46,6 +46,9 @@ export interface CampaignListParams {
   limit?: number;
 }
 
+// Memory lock to prevent concurrent double-dials for the same contact in direct dispatch
+const dispatchLocks = new Set<string>();
+
 // Valid state machine transitions
 const ALLOWED_TRANSITIONS: Record<CampaignStatus, CampaignStatus[]> = {
   [CampaignStatus.DRAFT]: [CampaignStatus.SCHEDULED, CampaignStatus.RUNNING, CampaignStatus.PAUSED, CampaignStatus.CANCELLED],
@@ -678,6 +681,15 @@ export async function transitionCampaignStatus(
                 logger.info({ contactId: target.contactId }, 'Skipping direct dispatch: call already initiated in last 45s');
                 continue;
               }
+
+              // In-memory lock to prevent race conditions causing double-dials
+              const lockKey = `${campaignId}-${target.contactId}`;
+              if (dispatchLocks.has(lockKey)) {
+                logger.info({ lockKey }, 'Skipping direct dispatch: locked by concurrent request');
+                continue;
+              }
+              dispatchLocks.add(lockKey);
+              setTimeout(() => dispatchLocks.delete(lockKey), 10000); // Release lock after 10s
 
               logger.info({ callJobId: job.id, render: Boolean(process.env.RENDER) }, 'Direct call dispatch');
               try {
