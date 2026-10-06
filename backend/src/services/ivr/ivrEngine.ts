@@ -13,6 +13,17 @@ export interface InterpolationContext {
   [key: string]: string | undefined;
 }
 
+export function escapeXml(unsafe: string | null | undefined): string {
+  if (!unsafe) return '';
+  return String(unsafe)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 /**
  * Replaces dynamic placeholders like {client_name}, {balance} in prompts.
  */
@@ -131,19 +142,8 @@ export async function renderQuestionTwiml(
   }
 
   const webhookBase = getCanonicalWebhookBase();
-  const gatherActionUrl = `${webhookBase}/api/voice/gather/${encodeURIComponent(callAttemptId)}/${encodeURIComponent(questionId)}`;
-
-  const escapeXml = (unsafe: string) =>
-    unsafe.replace(/[<>&'"]/g, (c) => {
-      switch (c) {
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '&': return '&amp;';
-        case '\'': return '&apos;';
-        case '"': return '&quot;';
-        default: return c;
-      }
-    });
+  const rawGatherUrl = `${webhookBase}/api/voice/gather/${encodeURIComponent(callAttemptId)}/${encodeURIComponent(questionId)}`;
+  const gatherActionUrl = escapeXml(rawGatherUrl);
 
   const escapedPrompt = escapeXml(promptText);
 
@@ -159,20 +159,21 @@ export async function renderQuestionTwiml(
   // 2. TRANSFER
   if (question.type === QuestionType.TRANSFER) {
     const transferNumber = question.transferPhoneNumber || env.TWILIO_PHONE_NUMBER || '';
+    const statusUrl = escapeXml(`${webhookBase}/api/voice/status?callAttemptId=${encodeURIComponent(callAttemptId)}`);
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapedPrompt}</Say>
-  <Dial callerId="${escapeXml(attempt.callJob.campaign.callerId)}" action="${webhookBase}/api/voice/status?callAttemptId=${encodeURIComponent(callAttemptId)}">${escapeXml(transferNumber)}</Dial>
+  <Dial callerId="${escapeXml(attempt.callJob?.campaign?.callerId || '')}" action="${statusUrl}">${escapeXml(transferNumber)}</Dial>
 </Response>`;
   }
 
   // 3. NUMERIC INPUT
   if (question.type === QuestionType.NUMERIC) {
     const maxDigits = question.maxDigits || 10;
-    const finishKey = question.finishOnKey || '#';
+    const finishKey = escapeXml(question.finishOnKey || '#');
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather input="dtmf" numDigits="${maxDigits}" finishOnKey="${escapeXml(finishKey)}" timeout="${question.timeoutSeconds || 8}" action="${gatherActionUrl}" method="POST">
+  <Gather input="dtmf" numDigits="${maxDigits}" finishOnKey="${finishKey}" timeout="${question.timeoutSeconds || 8}" action="${gatherActionUrl}" method="POST">
     <Say voice="alice">${escapedPrompt}</Say>
   </Gather>
   <Say voice="alice">We did not receive your input. Goodbye.</Say>
