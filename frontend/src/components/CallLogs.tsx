@@ -91,10 +91,26 @@ export const CallLogs: React.FC<CallLogsProps> = ({ callLogs: fallbackCallLogs }
       }
       const res = await api.getCalls(params);
       if (res.success && res.data) {
-        setLiveCalls((res.data as any).data || (res.data as any).calls || []);
+        const calls = (res.data as any).data || (res.data as any).calls || [];
+        setLiveCalls(calls);
         setPagination((res.data as any).pagination || { page: 1, limit: 20, total: 0, totalPages: 1 });
         setUseLiveApi(true);
+        
+        // Debug logging for browser console
+        console.log("📡 [LIVE CALLS UPDATE] Fetched", calls.length, "calls");
+        calls.forEach((c: any) => {
+          if (c.startedAt && new Date(c.startedAt).getTime() > Date.now() - 3600000) {
+            console.log(`📞 Call [${c.contact?.name}] - Status: ${c.status} | Duration: ${c.durationSeconds}s`);
+            if (c._count && c._count.events > 0) {
+               console.log(`   > Events Count: ${c._count.events}`);
+            }
+            if (c.responsesCount > 0 || (c.responses && c.responses.length > 0)) {
+               console.log(`   > 🎹 KEY PRESSED! Responses:`, c.responses || c.responsesCount);
+            }
+          }
+        });
       } else {
+        console.error("❌ [API ERROR] Failed to fetch live calls. Check session or CORS.", res);
         setUseLiveApi(false);
       }
     } catch {
@@ -106,7 +122,14 @@ export const CallLogs: React.FC<CallLogsProps> = ({ callLogs: fallbackCallLogs }
 
   useEffect(() => {
     fetchLiveCalls(1);
-  }, [fetchLiveCalls]);
+    
+    // Auto-poll every 5 seconds for live debugging
+    const interval = setInterval(() => {
+      fetchLiveCalls(pagination.page);
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [fetchLiveCalls, pagination.page]);
 
   // Fetch full details when drawer opens
   useEffect(() => {
