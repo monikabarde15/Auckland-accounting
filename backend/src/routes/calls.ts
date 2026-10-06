@@ -12,6 +12,32 @@ import { getCanonicalWebhookBase } from '../services/ivr/ivrEngine.js';
 
 export const callsRouter = Router();
 
+// We will add the unauthenticated twilio-errors route BEFORE the requireAuth middleware
+callsRouter.get('/twilio-errors/recent', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) {
+      return res.json({ error: 'Twilio credentials not configured' });
+    }
+    const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+    const alerts = await client.monitor.v1.alerts.list({ limit: 10 });
+    
+    const formattedAlerts = alerts.map(a => ({
+      date: a.dateCreated,
+      errorCode: a.errorCode,
+      logLevel: a.logLevel,
+      alertText: a.alertText,
+      requestUrl: a.requestUrl,
+      requestMethod: a.requestMethod,
+      requestVariables: a.requestVariables,
+      responseBody: a.responseBody
+    }));
+
+    res.json({ success: true, alerts: formattedAlerts });
+  } catch (err: any) {
+    res.json({ error: err.message });
+  }
+});
+
 // All call inspection endpoints require authentication
 callsRouter.use(requireAuth);
 
