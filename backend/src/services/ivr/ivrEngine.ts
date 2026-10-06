@@ -80,16 +80,7 @@ export function buildContactContext(contact: {
 }
 
 export function getCanonicalWebhookBase(): string {
-  let base = (process.env.TWILIO_WEBHOOK_BASE_URL || process.env.RENDER_EXTERNAL_URL || env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL || '').trim().replace(/\/+$/, '');
-  if (!base) {
-    base = 'https://auckland-accountin.onrender.com';
-  }
-  if (!base.startsWith('http://') && !base.startsWith('https://')) {
-    base = `https://${base}`;
-  } else if (base.startsWith('http://') && !base.includes('localhost') && !base.includes('127.0.0.1')) {
-    base = base.replace(/^http:\/\//, 'https://');
-  }
-  return base;
+  return 'https://auckland-accountin.onrender.com';
 }
 
 /**
