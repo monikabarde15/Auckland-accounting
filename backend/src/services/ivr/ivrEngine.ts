@@ -108,7 +108,8 @@ export async function renderQuestionTwiml(
   callAttemptId: string,
   questionId: string,
   retryCount: number = 0,
-  preloadedAttempt?: any
+  preloadedAttempt?: any,
+  transitionPhrase?: string
 ): Promise<string> {
   const attempt = preloadedAttempt || (await prisma.callAttempt.findUnique({
     where: { id: callAttemptId },
@@ -154,7 +155,27 @@ export async function renderQuestionTwiml(
   const rawGatherUrl = `${webhookBase}/api/voice/gather/${encodeURIComponent(callAttemptId)}/${encodeURIComponent(questionId)}`;
   const gatherActionUrl = escapeXml(rawGatherUrl);
 
+  if (transitionPhrase) {
+    promptText = `${transitionPhrase} ${promptText}`;
+  }
+
   const escapedPrompt = escapeXml(promptText);
+
+  // Safely log the bot's speech so it shows in the live console immediately
+  if (callAttemptId) {
+    try {
+      await prisma.callResponse.create({
+        data: {
+          callAttemptId,
+          questionId: questionId + '-bot-speak',
+          responseValue: 'BOT',
+          responseText: `(Bot speaking): ${promptText}`,
+          inputMethod: 'DTMF',
+          isValid: true
+        }
+      });
+    } catch (e) {}
+  }
 
   // 1. MESSAGE_ONLY / ANNOUNCEMENT
   if (question.type === QuestionType.MESSAGE_ONLY) {
@@ -346,7 +367,10 @@ export async function processGatheredResponse(
 
   // Continue to Next Question
   if (nextQuestionId) {
-    return renderQuestionTwiml(callAttemptId, nextQuestionId);
+    const transitionPhrase = matchedOption?.optionLabel 
+      ? `You selected ${matchedOption.optionLabel}.` 
+      : 'Thank you.';
+    return renderQuestionTwiml(callAttemptId, nextQuestionId, 0, attempt, transitionPhrase);
   }
 
   // If no explicit nextQuestionId, attempt to find next question in sequence
@@ -361,7 +385,10 @@ export async function processGatheredResponse(
       });
 
       if (nextSequential) {
-        return renderQuestionTwiml(callAttemptId, nextSequential.id);
+        const transitionPhrase = matchedOption?.optionLabel 
+          ? `You selected ${matchedOption.optionLabel}.` 
+          : 'Thank you.';
+        return renderQuestionTwiml(callAttemptId, nextSequential.id, 0, attempt, transitionPhrase);
       }
     } catch (err) {
       logger.warn({ err }, 'Error looking up next sequential question');

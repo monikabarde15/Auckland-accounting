@@ -179,8 +179,12 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               if (detailedCall.responses && detailedCall.responses.length > 0) {
                 console.warn("--- Call Script & User Responses ---");
                 detailedCall.responses.forEach((resp: any) => {
-                  console.warn(`🤖 Script / Question Asked: "${resp.questionText || 'Unknown'}"`);
-                  console.warn(`👤 User Key Pressed: [${resp.responseValue}] -> Meaning: ${resp.responseText}`);
+                  if (resp.responseValue === 'BOT' || resp.responseValue === 'END') {
+                    console.warn(`🤖 Bot Script spoken on phone: "${resp.responseText.replace('(Bot speaking): ', '').replace('(System Final Message): ', '')}"`);
+                  } else {
+                    console.warn(`🤖 Original Script / Question Asked: "${resp.questionText || 'Unknown'}"`);
+                    console.warn(`👤 User Key Pressed: [${resp.responseValue}] -> Meaning: ${resp.responseText}`);
+                  }
                 });
               }
 
