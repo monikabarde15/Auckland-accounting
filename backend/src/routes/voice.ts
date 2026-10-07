@@ -3,7 +3,7 @@ import { voiceWebhookService, TwilioWebhookPayload } from '../services/voiceWebh
 import { twilioService } from '../services/twilio/twilioService.js';
 import { getCanonicalWebhookBase } from '../services/ivr/ivrEngine.js';
 import { logger } from '../middleware/logger.js';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../services/prisma.js';
 
 export const voiceRouter = Router();
 
