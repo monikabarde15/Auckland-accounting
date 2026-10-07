@@ -124,9 +124,13 @@ export const Campaigns: React.FC<CampaignsProps> = ({
       try {
         // Fetch recently active calls (any status to catch ringing/queued/etc)
         const res = await api.getCalls({ limit: 3 });
-        if (res.success && res.data && (res.data as any).data) {
-          const calls = (res.data as any).data;
-          
+        if (res.success) {
+          let calls: any[] = [];
+          if (Array.isArray(res.data)) calls = res.data;
+          else if (res.data && Array.isArray((res.data as any).data)) calls = (res.data as any).data;
+          else if (res.data && Array.isArray((res.data as any).calls)) calls = (res.data as any).calls;
+          else if (Array.isArray((res as any).data)) calls = (res as any).data;
+
           if (calls.length === 0) {
              const stateSnapshot = "NO_CALLS";
              if (previousLogsRef.current['system'] !== stateSnapshot) {
@@ -187,11 +191,15 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                 }
               }
               console.warn("==================================================");
+            } else {
+              console.error("Failed to fetch call details for ID:", call.id, detailRes);
             }
           }
+        } else {
+           console.error("Failed to fetch calls. Response:", res);
         }
       } catch (err) {
-        // Ignore polling errors
+        console.error("Polling error in Campaigns live logger:", err);
       }
     }, 2500); // Poll every 2.5 seconds for faster feedback
 
