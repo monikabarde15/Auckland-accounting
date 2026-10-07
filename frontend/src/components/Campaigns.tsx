@@ -115,6 +115,8 @@ export const Campaigns: React.FC<CampaignsProps> = ({
   }, [campaigns]);
 
   // LIVE WEB CONSOLE DEBUGGER FOR CALL DATA
+  const previousLogsRef = useRef<Record<string, string>>({});
+
   useEffect(() => {
     // Only poll if there's a running campaign or we explicitly want to debug
     const runningCampaigns = campaigns.filter(c => String(c.status).toUpperCase() === 'RUNNING');
@@ -122,8 +124,8 @@ export const Campaigns: React.FC<CampaignsProps> = ({
 
     const intervalId = setInterval(async () => {
       try {
-        // Fetch recently active calls
-        const res = await api.getCalls({ status: 'IN_PROGRESS', limit: 5 });
+        // Fetch recently active calls (any status to catch ringing/queued/etc)
+        const res = await api.getCalls({ limit: 3 });
         if (res.success && res.data && (res.data as any).data) {
           const calls = (res.data as any).data;
           for (const call of calls) {
@@ -131,6 +133,14 @@ export const Campaigns: React.FC<CampaignsProps> = ({
             const detailRes = await api.getCallById(call.id);
             if (detailRes.success && detailRes.data) {
               const detailedCall = (detailRes.data as any).data || (detailRes.data as any).call || detailRes.data;
+              
+              // Only print if something changed (events length, status, or responses)
+              const stateSnapshot = `${detailedCall.status}-${detailedCall.events?.length || 0}-${detailedCall.responses?.length || 0}`;
+              if (previousLogsRef.current[detailedCall.id] === stateSnapshot) {
+                continue; // Skip if no changes since last poll
+              }
+              previousLogsRef.current[detailedCall.id] = stateSnapshot;
+
               console.log("%c====== WEB DEBUG LOG: LIVE CALL DATA ======", "color: #00ff00; font-weight: bold;");
               console.log("CallAttemptId:", detailedCall.id);
               console.log("Status:", detailedCall.status);
@@ -148,7 +158,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                 // Print the last 3 events
                 const recentEvents = [...detailedCall.events].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 3);
                 recentEvents.forEach((ev: any) => {
-                  console.log(`[${ev.eventType}]`, JSON.stringify(ev.payloadJson, null, 2));
+                  console.log(`[${ev.eventType}]`, JSON.parse(JSON.stringify(ev.payloadJson || {})));
                 });
               }
               console.log("==================================================");
@@ -158,7 +168,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
       } catch (err) {
         // Ignore polling errors
       }
-    }, 5000); // Poll every 5 seconds
+    }, 3000); // Poll every 3 seconds for faster feedback
 
     return () => clearInterval(intervalId);
   }, [campaigns]);
