@@ -128,6 +128,18 @@ export const Campaigns: React.FC<CampaignsProps> = ({
         const res = await api.getCalls({ limit: 3 });
         if (res.success && res.data && (res.data as any).data) {
           const calls = (res.data as any).data;
+          
+          if (calls.length === 0) {
+             const stateSnapshot = "NO_CALLS";
+             if (previousLogsRef.current['system'] !== stateSnapshot) {
+               console.log("%c====== WEB DEBUG LOG: LIVE CALL DATA ======", "color: #00ffff; font-weight: bold;");
+               console.log("Status: No calls initiated yet. System is waiting/idle.");
+               console.log("==================================================");
+               previousLogsRef.current['system'] = stateSnapshot;
+             }
+             return;
+          }
+
           for (const call of calls) {
             // Fetch detailed events for each active call
             const detailRes = await api.getCallById(call.id);
@@ -143,23 +155,38 @@ export const Campaigns: React.FC<CampaignsProps> = ({
 
               console.log("%c====== WEB DEBUG LOG: LIVE CALL DATA ======", "color: #00ff00; font-weight: bold;");
               console.log("CallAttemptId:", detailedCall.id);
-              console.log("Status:", detailedCall.status);
-              console.log("Target Contact:", detailedCall.callJob?.contact?.name, detailedCall.callJob?.contact?.phoneNumber);
+              
+              if (detailedCall.status === 'IN_PROGRESS') {
+                 console.log("Status: 🟢 IN_PROGRESS (Call picked up by the user!)");
+              } else if (detailedCall.status === 'FAILED') {
+                 console.log("Status: 🔴 FAILED (Call failed or errored out)");
+              } else if (detailedCall.status === 'RINGING') {
+                 console.log("Status: 🟡 RINGING (Dialing the user...)");
+              } else {
+                 console.log("Status:", detailedCall.status);
+              }
+
+              console.log("Target Contact:", detailedCall.campaign?.contact?.name || detailedCall.contact?.name || 'Unknown', detailedCall.campaign?.contact?.phoneNumber || detailedCall.contact?.phoneNumber || 'Unknown');
               
               if (detailedCall.responses && detailedCall.responses.length > 0) {
-                console.log("--- User Responses ---");
+                console.log("--- Call Script & User Responses ---");
                 detailedCall.responses.forEach((resp: any) => {
-                  console.log(`Question: ${resp.question?.questionText || 'Unknown'} -> User Pressed: ${resp.responseValue} (Meaning: ${resp.responseText})`);
+                  console.log(`🤖 Script / Question Asked: "${resp.questionText || 'Unknown'}"`);
+                  console.log(`👤 User Key Pressed: [${resp.responseValue}] -> Meaning: ${resp.responseText}`);
                 });
               }
 
               if (detailedCall.events && detailedCall.events.length > 0) {
-                console.log("--- Latest Webhook Events ---");
-                // Print the last 3 events
-                const recentEvents = [...detailedCall.events].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 3);
-                recentEvents.forEach((ev: any) => {
-                  console.log(`[${ev.eventType}]`, JSON.parse(JSON.stringify(ev.payloadJson || {})));
-                });
+                const latestEvents = [...detailedCall.events].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                
+                // Check for errors in recent events
+                const errorEvents = latestEvents.filter((e: any) => (e.payload && e.payload.ErrorCode) || e.eventType.includes('FAILED') || e.eventType.includes('ERROR'));
+                if (errorEvents.length > 0) {
+                   console.log("%c--- ⚠️ ERRORS DETECTED ---", "color: #ff0000; font-weight: bold;");
+                   errorEvents.forEach((err: any) => {
+                      console.log(`Error Code: ${err.payload?.ErrorCode || 'Unknown'} - ${err.payload?.ErrorMessage || err.eventType}`);
+                   });
+                }
               }
               console.log("==================================================");
             }
@@ -168,7 +195,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
       } catch (err) {
         // Ignore polling errors
       }
-    }, 3000); // Poll every 3 seconds for faster feedback
+    }, 2500); // Poll every 2.5 seconds for faster feedback
 
     return () => clearInterval(intervalId);
   }, [campaigns]);
