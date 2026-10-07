@@ -118,9 +118,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
   const previousLogsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    // Only poll if there's a running campaign or we explicitly want to debug
-    const runningCampaigns = campaigns.filter(c => String(c.status).toUpperCase() === 'RUNNING');
-    if (runningCampaigns.length === 0) return;
+    // Poll continuously to show live status (even when paused/idle)
 
     const intervalId = setInterval(async () => {
       try {
