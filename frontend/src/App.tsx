@@ -628,8 +628,3 @@ export function App() {
 }
 
 export default App;
-/ /  
- T r i g g e r  
- V e r c e l  
- b u i l d  
- 
