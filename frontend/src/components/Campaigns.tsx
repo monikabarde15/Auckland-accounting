@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Plus,
   Play,
@@ -112,6 +112,48 @@ export const Campaigns: React.FC<CampaignsProps> = ({
     });
 
     return { total: campaigns.length, running, scheduled, paused, draft, completed };
+  }, [campaigns]);
+
+  // LIVE WEB CONSOLE DEBUGGER FOR CALL DATA
+  useEffect(() => {
+    // Only poll if there's a running campaign or we explicitly want to debug
+    const runningCampaigns = campaigns.filter(c => String(c.status).toUpperCase() === 'RUNNING');
+    if (runningCampaigns.length === 0) return;
+
+    const intervalId = setInterval(async () => {
+      try {
+        // Fetch recently active calls
+        const res = await api.getCalls({ status: 'IN_PROGRESS', limit: 5 });
+        if (res.success && res.data && (res.data as any).data) {
+          const calls = (res.data as any).data;
+          for (const call of calls) {
+            // Fetch detailed events for each active call
+            const detailRes = await api.getCallById(call.id);
+            if (detailRes.success && detailRes.data) {
+              const detailedCall = (detailRes.data as any).data || (detailRes.data as any).call || detailRes.data;
+              console.log("%c====== WEB DEBUG LOG: LIVE CALL DATA ======", "color: #00ff00; font-weight: bold;");
+              console.log("CallAttemptId:", detailedCall.id);
+              console.log("Status:", detailedCall.status);
+              console.log("Target Contact:", detailedCall.callJob?.contact?.name, detailedCall.callJob?.contact?.phoneNumber);
+              
+              if (detailedCall.events && detailedCall.events.length > 0) {
+                console.log("--- Latest Webhook Events ---");
+                // Print the last 3 events
+                const recentEvents = [...detailedCall.events].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 3);
+                recentEvents.forEach((ev: any) => {
+                  console.log(`[${ev.eventType}]`, JSON.stringify(ev.payloadJson, null, 2));
+                });
+              }
+              console.log("==================================================");
+            }
+          }
+        }
+      } catch (err) {
+        // Ignore polling errors
+      }
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(intervalId);
   }, [campaigns]);
 
   // Filtered campaigns
