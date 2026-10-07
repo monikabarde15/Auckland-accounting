@@ -649,22 +649,16 @@ export async function transitionCampaignStatus(
             if (redisAvailable) {
               try {
                 const { addOutboundCallJob } = await import('../queues/queueManager.js');
-                addOutboundCallJob(
+                await addOutboundCallJob(
                   { campaignId, contactId: target.contactId, callJobId: job.id, attemptNumber: job.attempts + 1 },
                   {}
-                ).then(() => {
-                  logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
-                }).catch((queueErr) => {
-                  logger.warn(
-                    { error: (queueErr as Error).message, callJobId: job.id },
-                    'BullMQ enqueue failed in background'
-                  );
-                });
+                );
+                logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
                 enqueuedViaBullMQ = true;
-              } catch (importErr) {
+              } catch (err) {
                 logger.warn(
-                  { error: (importErr as Error).message, callJobId: job.id },
-                  'Failed to import queueManager'
+                  { error: (err as Error).message, callJobId: job.id },
+                  'BullMQ enqueue failed in background; will fallback to direct dispatch'
                 );
               }
             }
