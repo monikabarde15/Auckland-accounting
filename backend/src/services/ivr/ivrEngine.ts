@@ -309,9 +309,24 @@ export async function processGatheredResponse(
   const nextQuestionId = matchedOption?.nextQuestionId;
 
   if (nextAction === NextAction.END_CALL) {
+    const endScript = 'Thank you for your response. Have a great day. Goodbye.';
+    if (callAttemptId) {
+      try {
+        await prisma.callResponse.create({
+          data: {
+            callAttemptId,
+            questionId: questionId + '-end-action',
+            responseValue: 'END',
+            responseText: `(System Final Message): ${endScript}`,
+            inputMethod: 'DTMF',
+            isValid: true
+          }
+        });
+      } catch (e) {}
+    }
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Thank you for your response. Have a great day. Goodbye.</Say>
+  <Say voice="alice">${endScript}</Say>
   <Hangup/>
 </Response>`;
   }
@@ -356,9 +371,26 @@ export async function processGatheredResponse(
     ? 'Thank you. We have recorded your selection.'
     : `Thank you for your response.`;
 
+  const finalScriptToSay = `${finalMessage} Thank you for calling Auckland Accounting. Goodbye.`;
+
+  if (callAttemptId) {
+    try {
+      await prisma.callResponse.create({
+        data: {
+          callAttemptId,
+          questionId: questionId + '-end',
+          responseValue: 'END',
+          responseText: `(System Final Message): ${finalScriptToSay}`,
+          inputMethod: 'DTMF',
+          isValid: true
+        }
+      });
+    } catch (e) {}
+  }
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">${finalMessage} Thank you for calling Auckland Accounting. Goodbye.</Say>
+  <Say voice="alice">${finalScriptToSay}</Say>
   <Hangup/>
 </Response>`;
 }
