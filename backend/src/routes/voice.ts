@@ -28,7 +28,7 @@ function requireTwilioSignature(req: Request, res: Response, next: () => void) {
 /**
  * Serves initial TwiML when outbound call connects.
  */
-voiceRouter.all('/twiml/:callAttemptId?/:questionId?', async (req: Request, res: Response) => {
+voiceRouter.all(['/twiml', '/twiml/:callAttemptId', '/twiml/:callAttemptId/:questionId'], async (req: Request, res: Response) => {
   const callAttemptId = (req.params.callAttemptId || req.query.callAttemptId || req.body.callAttemptId) as string;
   const questionId = (req.params.questionId || req.query.questionId || req.body.questionId) as string | undefined;
   const prompt = (req.query.prompt || req.body.prompt) as string | undefined;
@@ -69,7 +69,7 @@ voiceRouter.all('/twiml/:callAttemptId?/:questionId?', async (req: Request, res:
  * Supports /api/voice/gather, /api/voice/gather/:callAttemptId, and /api/voice/gather/:callAttemptId/:questionId
  * Handles both GET and POST requests gracefully and returns 200 OK TwiML under all scenarios.
  */
-voiceRouter.all('/gather*', async (req: Request, res: Response) => {
+voiceRouter.all(['/gather', '/gather/:callAttemptId', '/gather/:callAttemptId/:questionId'], async (req: Request, res: Response) => {
   const pathParts = req.path.split('/').filter(Boolean); // e.g. ['gather', 'attempt123', 'q456']
   const callAttemptId = (req.params.callAttemptId || req.query.callAttemptId || req.body.callAttemptId || pathParts[1] || '') as string;
   const questionId = (req.params.questionId || req.query.questionId || req.body.questionId || pathParts[2] || '') as string;
