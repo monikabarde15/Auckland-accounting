@@ -309,7 +309,11 @@ export async function processGatheredResponse(
   const nextQuestionId = matchedOption?.nextQuestionId;
 
   if (nextAction === NextAction.END_CALL) {
-    const endScript = 'Thank you for your response. Have a great day. Goodbye.';
+    const contactName = attempt?.callJob?.contact?.name || 'there';
+    const endScript = cleanDigits === '1' 
+      ? `Thank you ${contactName}. Your return authorization has been recorded and submitted to Inland Revenue. Goodbye.`
+      : `Thank you ${contactName}. Your response has been recorded. Goodbye.`;
+      
     if (callAttemptId) {
       try {
         await prisma.callResponse.create({
@@ -365,13 +369,10 @@ export async function processGatheredResponse(
   }
 
   // End of questionnaire
-  const finalMessage = cleanDigits === '1'
-    ? 'Thank you. Your confirmation has been recorded successfully.'
-    : cleanDigits === '2'
-    ? 'Thank you. We have recorded your selection.'
-    : `Thank you for your response.`;
-
-  const finalScriptToSay = `${finalMessage} Thank you for calling Auckland Accounting. Goodbye.`;
+  const contactName = attempt?.callJob?.contact?.name || 'there';
+  const finalScriptToSay = cleanDigits === '1'
+    ? `Thank you ${contactName}. Your return authorization has been recorded and submitted to Inland Revenue. Goodbye.`
+    : `Thank you ${contactName}. We have recorded your selection. Goodbye.`;
 
   if (callAttemptId) {
     try {
