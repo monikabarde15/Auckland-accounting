@@ -130,9 +130,9 @@ export const Campaigns: React.FC<CampaignsProps> = ({
           if (calls.length === 0) {
              const stateSnapshot = "NO_CALLS";
              if (previousLogsRef.current['system'] !== stateSnapshot) {
-               console.log("%c====== WEB DEBUG LOG: LIVE CALL DATA ======", "color: #00ffff; font-weight: bold;");
-               console.log("Status: No calls initiated yet. System is waiting/idle.");
-               console.log("==================================================");
+               console.warn("%c====== WEB DEBUG LOG: LIVE CALL DATA ======", "color: #00ffff; font-weight: bold; font-size: 14px;");
+               console.warn("Status: No calls initiated yet. System is waiting/idle.");
+               console.warn("==================================================");
                previousLogsRef.current['system'] = stateSnapshot;
              }
              return;
@@ -151,26 +151,26 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               }
               previousLogsRef.current[detailedCall.id] = stateSnapshot;
 
-              console.log("%c====== WEB DEBUG LOG: LIVE CALL DATA ======", "color: #00ff00; font-weight: bold;");
-              console.log("CallAttemptId:", detailedCall.id);
+              console.warn("%c====== WEB DEBUG LOG: LIVE CALL DATA ======", "color: #00ff00; font-weight: bold; font-size: 14px;");
+              console.warn("CallAttemptId:", detailedCall.id);
               
               if (detailedCall.status === 'IN_PROGRESS') {
-                 console.log("Status: 🟢 IN_PROGRESS (Call picked up by the user!)");
+                 console.warn("Status: 🟢 IN_PROGRESS (Call picked up by the user!)");
               } else if (detailedCall.status === 'FAILED') {
-                 console.log("Status: 🔴 FAILED (Call failed or errored out)");
+                 console.warn("Status: 🔴 FAILED (Call failed or errored out)");
               } else if (detailedCall.status === 'RINGING') {
-                 console.log("Status: 🟡 RINGING (Dialing the user...)");
+                 console.warn("Status: 🟡 RINGING (Dialing the user...)");
               } else {
-                 console.log("Status:", detailedCall.status);
+                 console.warn("Status:", detailedCall.status);
               }
 
-              console.log("Target Contact:", detailedCall.campaign?.contact?.name || detailedCall.contact?.name || 'Unknown', detailedCall.campaign?.contact?.phoneNumber || detailedCall.contact?.phoneNumber || 'Unknown');
+              console.warn("Target Contact:", detailedCall.campaign?.contact?.name || detailedCall.contact?.name || 'Unknown', detailedCall.campaign?.contact?.phoneNumber || detailedCall.contact?.phoneNumber || 'Unknown');
               
               if (detailedCall.responses && detailedCall.responses.length > 0) {
-                console.log("--- Call Script & User Responses ---");
+                console.warn("--- Call Script & User Responses ---");
                 detailedCall.responses.forEach((resp: any) => {
-                  console.log(`🤖 Script / Question Asked: "${resp.questionText || 'Unknown'}"`);
-                  console.log(`👤 User Key Pressed: [${resp.responseValue}] -> Meaning: ${resp.responseText}`);
+                  console.warn(`🤖 Script / Question Asked: "${resp.questionText || 'Unknown'}"`);
+                  console.warn(`👤 User Key Pressed: [${resp.responseValue}] -> Meaning: ${resp.responseText}`);
                 });
               }
 
@@ -180,13 +180,13 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                 // Check for errors in recent events
                 const errorEvents = latestEvents.filter((e: any) => (e.payload && e.payload.ErrorCode) || e.eventType.includes('FAILED') || e.eventType.includes('ERROR'));
                 if (errorEvents.length > 0) {
-                   console.log("%c--- ⚠️ ERRORS DETECTED ---", "color: #ff0000; font-weight: bold;");
+                   console.error("%c--- ⚠️ ERRORS DETECTED ---", "color: #ff0000; font-weight: bold;");
                    errorEvents.forEach((err: any) => {
-                      console.log(`Error Code: ${err.payload?.ErrorCode || 'Unknown'} - ${err.payload?.ErrorMessage || err.eventType}`);
+                      console.error(`Error Code: ${err.payload?.ErrorCode || 'Unknown'} - ${err.payload?.ErrorMessage || err.eventType}`);
                    });
                 }
               }
-              console.log("==================================================");
+              console.warn("==================================================");
             }
           }
         }
