@@ -136,6 +136,13 @@ export const Campaigns: React.FC<CampaignsProps> = ({
               console.log("Status:", detailedCall.status);
               console.log("Target Contact:", detailedCall.callJob?.contact?.name, detailedCall.callJob?.contact?.phoneNumber);
               
+              if (detailedCall.responses && detailedCall.responses.length > 0) {
+                console.log("--- User Responses ---");
+                detailedCall.responses.forEach((resp: any) => {
+                  console.log(`Question: ${resp.question?.questionText || 'Unknown'} -> User Pressed: ${resp.responseValue} (Meaning: ${resp.responseText})`);
+                });
+              }
+
               if (detailedCall.events && detailedCall.events.length > 0) {
                 console.log("--- Latest Webhook Events ---");
                 // Print the last 3 events
