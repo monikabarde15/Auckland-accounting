@@ -164,6 +164,12 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                  console.warn("Status: 🔴 FAILED (Call failed or errored out)");
               } else if (detailedCall.status === 'RINGING') {
                  console.warn("Status: 🟡 RINGING (Dialing the user...)");
+              } else if (detailedCall.status === 'NO_ANSWER') {
+                 console.warn("Status: 🔇 NO_ANSWER (User did not pick up the phone)");
+              } else if (detailedCall.status === 'BUSY') {
+                 console.warn("Status: 🚫 BUSY (User line is busy or rejected the call)");
+              } else if (detailedCall.status === 'COMPLETED') {
+                 console.warn("Status: ✅ COMPLETED (Call finished successfully)");
               } else {
                  console.warn("Status:", detailedCall.status);
               }

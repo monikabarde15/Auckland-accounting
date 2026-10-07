@@ -3,6 +3,7 @@ import { voiceWebhookService, TwilioWebhookPayload } from '../services/voiceWebh
 import { twilioService } from '../services/twilio/twilioService.js';
 import { getCanonicalWebhookBase } from '../services/ivr/ivrEngine.js';
 import { logger } from '../middleware/logger.js';
+import { prisma } from '../lib/prisma.js';
 
 export const voiceRouter = Router();
 
@@ -60,6 +61,17 @@ voiceRouter.all(['/twiml', '/twiml/:callAttemptId', '/twiml/:callAttemptId/:ques
     res.type('text/xml').send(xml);
   } catch (error) {
     logger.error({ error: (error as Error).message, callAttemptId }, 'Error rendering initial TwiML');
+    if (callAttemptId) {
+      try {
+        await prisma.callEvent.create({
+          data: {
+            callAttemptId,
+            eventType: 'BACKEND_WEBHOOK_ERROR',
+            payloadJson: { ErrorMessage: (error as Error).message }
+          }
+        });
+      } catch (e) {}
+    }
     res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Kia ora. Auckland Accounting campaign connected.</Say><Hangup/></Response>');
   }
 });
@@ -117,6 +129,17 @@ voiceRouter.all(['/gather', '/gather/:callAttemptId', '/gather/:callAttemptId/:q
     res.status(200).type('text/xml').send(xml);
   } catch (error) {
     logger.error({ error: (error as Error).message, stack: (error as Error).stack, callAttemptId, questionId, digits }, '[TWILIO GATHER ERROR]');
+    if (callAttemptId) {
+      try {
+        await prisma.callEvent.create({
+          data: {
+            callAttemptId,
+            eventType: 'BACKEND_WEBHOOK_ERROR',
+            payloadJson: { ErrorMessage: (error as Error).message }
+          }
+        });
+      } catch (e) {}
+    }
     const confirmationText = digits === '1'
       ? 'Thank you. Your confirmation has been recorded successfully.'
       : digits === '2'
