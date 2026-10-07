@@ -98,7 +98,7 @@ export function getCanonicalWebhookBase(req?: any): string {
   }
 
   // 4. Hard fallback to the user's specific Render production domain
-  return 'https://auckland-accountin.onrender.com';
+  return 'https://auckland-accounting.onrender.com';
 }
 
 /**
