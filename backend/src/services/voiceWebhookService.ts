@@ -61,6 +61,12 @@ export class VoiceWebhookService {
       CallStatus.CANCELLED
     ];
 
+    console.log("====== DEBUG LOG: CALL STARTED/RESUMED ======");
+    console.log("CallAttemptId:", callAttemptId);
+    console.log("QuestionId:", questionId);
+    console.log("Payload:", JSON.stringify(payload, null, 2));
+    console.log("=============================================");
+
     // Background update: do NOT block Twilio webhook response so call connects instantly (<100ms)
     setImmediate(async () => {
       try {
@@ -122,6 +128,13 @@ export class VoiceWebhookService {
   ): Promise<string> {
     const digits = payload.Digits || '';
 
+    console.log("====== DEBUG LOG: USER RESPONSE (GATHER) ======");
+    console.log("CallAttemptId:", callAttemptId);
+    console.log("QuestionId:", questionId);
+    console.log("User Pressed Digits:", digits);
+    console.log("Full Payload:", JSON.stringify(payload, null, 2));
+    console.log("===============================================");
+
     // Record Event in background so Twilio response is not delayed
     setImmediate(async () => {
       try {
@@ -151,6 +164,13 @@ export class VoiceWebhookService {
     const rawStatus = (payload.CallStatus || '').toLowerCase();
     const duration = parseInt(payload.CallDuration || '0', 10);
     const eventId = callSid ? `${callSid}-${rawStatus}-${payload.SequenceNumber || Date.now()}` : undefined;
+
+    console.log("====== DEBUG LOG: CALL STATUS CALLBACK ======");
+    console.log("CallAttemptId:", callAttemptId);
+    console.log("Status:", rawStatus);
+    console.log("Duration:", duration);
+    console.log("Entire Call Process Payload:", JSON.stringify(payload, null, 2));
+    console.log("=============================================");
 
     // Idempotency: Check if this provider event was already recorded
     if (eventId) {

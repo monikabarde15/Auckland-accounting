@@ -1,34 +1,38 @@
 import { PrismaClient } from '@prisma/client';
+import { renderQuestionTwiml } from './src/services/ivr/ivrEngine.js';
+
 const prisma = new PrismaClient();
 
-async function main() {
-  const campaign = await prisma.campaign.findFirst({
-    where: { name: 'Inland Revenue ID & Security Verification' },
+async function run() {
+  const attempt = await prisma.callAttempt.findFirst({
+    orderBy: { id: 'desc' },
     include: {
-      callJobs: {
+      callJob: {
         include: {
-          attemptsList: {
-            orderBy: { startedAt: 'desc' },
-            take: 1
-          }
+          campaign: {
+            include: {
+              questionnaire: {
+                include: { questions: { orderBy: { orderNo: 'asc' } } }
+              }
+            }
+          },
+          contact: true
         }
       }
     }
   });
 
-  if (!campaign) {
-    console.log('Campaign not found');
+  if (!attempt) {
+    console.log('No attempts found');
     return;
   }
 
-  console.log(`Campaign ID: ${campaign.id}`);
-  console.log(`Campaign Status: ${campaign.status}`);
-  for (const job of campaign.callJobs) {
-    console.log(` Job ID: ${job.id} | Status: ${job.status}`);
-    if (job.attemptsList.length) {
-      console.log(`  Last Attempt Status: ${job.attemptsList[0].status}`);
-    }
+  const q = attempt.callJob.campaign?.questionnaire?.questions?.[0];
+  if (q) {
+    const xml = await renderQuestionTwiml(attempt.id, q.id, 0, attempt);
+    console.log(xml);
+  } else {
+    console.log('No questions found');
   }
 }
-
-main().catch(console.error).finally(() => prisma.$disconnect());
+run();
