@@ -116,7 +116,7 @@ export class VoiceWebhookService {
       targetQuestionId = qList[0].id;
     }
 
-    return renderQuestionTwiml(callAttemptId, targetQuestionId, 0, attempt);
+    return renderQuestionTwiml(callAttemptId, targetQuestionId || '', 0, attempt);
   }
 
   /**
