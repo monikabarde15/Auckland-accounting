@@ -53,6 +53,14 @@ export const AVAILABLE_VOICE_PROFILES: VoiceProfile[] = [
     accent: 'NZ Corporate Executive',
     description: 'Deep, clear male voice for senior partner escalations and callbacks.',
     gender: 'male'
+  },
+  {
+    id: 'aditi-in',
+    name: 'Aditi (Indian English & Hindi)',
+    region: 'India / New Delhi',
+    accent: 'Indian Professional Clear',
+    description: 'Natural bilingual Indian accent optimized for Indian recipients & Hindi IVR.',
+    gender: 'female'
   }
 ];
 
@@ -191,17 +199,23 @@ class SpeechService {
     const cleanText = text.replace(/\{(\w+)\}/g, '$1');
     const utterance = new SpeechSynthesisUtterance(cleanText);
 
-    // Exact vocal tuning for Aria New Zealand Female (calm, clear, warm IVR tempo)
+    const hasHindi = /[\u0900-\u097F]/.test(cleanText) || /\b(namaste|shukriya|dhanyavaad|kripya|aapka|alvida)\b/i.test(cleanText);
     utterance.rate = options.rate ?? 0.95;
     utterance.pitch = options.pitch ?? 1.01;
     utterance.volume = options.volume ?? 1.0;
-    utterance.lang = options.lang || 'en-NZ';
+    utterance.lang = options.lang || (hasHindi ? 'hi-IN' : 'en-NZ');
 
     if (this.cachedVoices.length === 0) {
       this.loadVoices();
     }
 
-    const voice = this.findBestVoice(options.voiceProfileId || this.selectedVoiceId);
+    let voice: SpeechSynthesisVoice | undefined = undefined;
+    if (hasHindi) {
+      voice = this.cachedVoices.find((v) => v.lang.startsWith('hi') || v.name.toLowerCase().includes('hindi') || v.name.toLowerCase().includes('india'));
+    }
+    if (!voice) {
+      voice = this.findBestVoice(options.voiceProfileId || this.selectedVoiceId);
+    }
     if (voice) {
       utterance.voice = voice;
     }
@@ -225,6 +239,12 @@ class SpeechService {
   private findBestVoice(voiceProfileId: string): SpeechSynthesisVoice | undefined {
     const voices = this.cachedVoices;
     if (!voices || voices.length === 0) return undefined;
+
+    // Prioritize Aditi IN / Indian English / Hindi
+    if (voiceProfileId === 'aditi-in') {
+      const inMatch = voices.find((v) => v.lang === 'en-IN' || v.lang.startsWith('hi') || v.name.toLowerCase().includes('india') || v.name.toLowerCase().includes('hindi') || v.name.toLowerCase().includes('aditi'));
+      if (inMatch) return inMatch;
+    }
 
     // 1. Prioritize Aria (Natural / Neural)
     if (voiceProfileId === 'aria-nz' || !voiceProfileId) {

@@ -444,7 +444,164 @@ export async function updateCampaign(id: string, input: UpdateCampaignInput) {
     return c;
   });
 
+  if (input.targetContactIds !== undefined || input.targetGroupIds !== undefined) {
+    await attachContactsToCampaign(id, {
+      contactIds: input.targetContactIds || [],
+      groupIds: input.targetGroupIds || [],
+      userId: input.userId,
+      ipAddress: input.ipAddress,
+      userAgent: input.userAgent
+    });
+  }
+
   return getCampaignById(updated.id);
+}
+
+/**
+ * Asynchronously dispatches outbound calls for a campaign audience.
+ * Operates safely with or without Redis (direct dispatch fallback).
+ */
+export function triggerBackgroundCampaignDispatch(campaignId: string, maxRetries: number = 3) {
+  setImmediate(async () => {
+    try {
+      const activeContacts = await prisma.campaignContact.findMany({
+        where: { campaignId },
+        select: { contactId: true }
+      });
+      const activeContactIds = activeContacts.map((c) => c.contactId);
+
+      // AUTO-RESET: Reset stuck/finished/cancelled jobs to PENDING so they dial immediately on resume
+      await prisma.callJob.updateMany({
+        where: {
+          campaignId,
+          contactId: { in: activeContactIds },
+          status: { in: ['DISPATCHED', 'FAILED', 'COMPLETED', 'CANCELLED'] }
+        },
+        data: { status: 'PENDING', attempts: 0 }
+      });
+
+      const targets = await prisma.campaignContact.findMany({
+        where: {
+          campaignId,
+          status: { notIn: ['EXCLUDED_DNC', 'CANCELLED'] }
+        },
+        include: {
+          contact: {
+            select: { id: true, isDoNotCall: true, phoneNumber: true }
+          }
+        }
+      });
+
+      logger.info({ campaignId, targetCount: targets.length }, 'Resume: background dispatching calls');
+
+      for (const target of targets) {
+        if (target.contact.isDoNotCall) continue;
+
+        let job = await prisma.callJob.findFirst({
+          where: { campaignId, contactId: target.contactId }
+        });
+
+        if (!job) {
+          try {
+            job = await prisma.callJob.create({
+              data: {
+                campaignId,
+                contactId: target.contactId,
+                status: 'PENDING',
+                attempts: 0,
+                maxAttempts: maxRetries || 3
+              }
+            });
+          } catch {
+            job = await prisma.callJob.findFirst({
+              where: { campaignId, contactId: target.contactId }
+            });
+          }
+        } else if (job.status === 'FAILED' || job.status === 'CANCELLED' || job.status === 'COMPLETED') {
+          try {
+            job = await prisma.callJob.update({
+              where: { id: job.id },
+              data: { status: 'PENDING', attempts: 0 }
+            });
+          } catch {
+            // ignore
+          }
+        }
+
+        if (!job) continue;
+
+        if (job.status === 'PENDING') {
+          const redisAvailable = Boolean(
+            (env.REDIS_HOST && env.REDIS_HOST !== '127.0.0.1') || process.env.REDIS_URL
+          );
+
+          let enqueuedViaBullMQ = false;
+
+          if (redisAvailable) {
+            try {
+              const { addOutboundCallJob } = await import('../queues/queueManager.js');
+              await addOutboundCallJob(
+                { campaignId, contactId: target.contactId, callJobId: job.id, attemptNumber: job.attempts + 1 },
+                {}
+              );
+              logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
+              enqueuedViaBullMQ = true;
+            } catch (err) {
+              logger.warn(
+                { error: (err as Error).message, callJobId: job.id },
+                'BullMQ enqueue failed in background; will fallback to direct dispatch'
+              );
+            }
+          }
+
+          // Direct dispatch fallback if Redis is unavailable or BullMQ failed
+          if (!enqueuedViaBullMQ) {
+            const recentAttempt = await prisma.callAttempt.findFirst({
+              where: {
+                callJob: { contactId: target.contactId },
+                status: { in: ['QUEUED', 'INITIATED', 'RINGING', 'IN_PROGRESS'] },
+                startedAt: { gte: new Date(Date.now() - 20 * 1000) }
+              }
+            });
+            if (recentAttempt) {
+              logger.info({ contactId: target.contactId }, 'Skipping direct dispatch: call already actively in flight');
+              continue;
+            }
+
+            const lockKey = `${campaignId}-${target.contactId}`;
+            if (dispatchLocks.has(lockKey)) {
+              logger.info({ lockKey }, 'Skipping direct dispatch: locked by concurrent request');
+              continue;
+            }
+            dispatchLocks.add(lockKey);
+            setTimeout(() => dispatchLocks.delete(lockKey), 10000); // Release lock after 10s
+
+            logger.info({ callJobId: job.id, render: Boolean(process.env.RENDER) }, 'Direct call dispatch');
+            try {
+              void callWorker.processCallJob({
+                id: `direct-${job.id}`,
+                data: {
+                  campaignId,
+                  contactId: target.contactId,
+                  callJobId: job.id,
+                  attemptNumber: job.attempts + 1
+                }
+              }).catch((directErr) => {
+                logger.error(
+                  { error: (directErr as Error).message, callJobId: job.id },
+                  'Direct call execution failed'
+                );
+              });
+            } catch (workerImportErr) {
+              logger.error({ error: (workerImportErr as Error).message }, 'Failed to import callWorker for direct dispatch');
+            }
+          }
+        }
+      }
+    } catch (bgError) {
+      logger.error({ err: bgError, campaignId }, 'Error in async background campaign dispatch');
+    }
+  });
 }
 
 /**
@@ -486,6 +643,9 @@ export async function transitionCampaignStatus(
 
   const currentStatus = campaign.status;
   if (currentStatus === targetStatus) {
+    if (targetStatus === CampaignStatus.RUNNING) {
+      triggerBackgroundCampaignDispatch(campaignId, campaign.maxRetries || 3);
+    }
     return getCampaignById(campaign.id);
   }
 
@@ -570,147 +730,7 @@ export async function transitionCampaignStatus(
   // If transitioning to RUNNING, create/enqueue CallJobs asynchronously in background
   // so that the API response returns INSTANTLY without making the client wait!
   if (targetStatus === CampaignStatus.RUNNING) {
-    setImmediate(async () => {
-      try {
-        const activeContacts = await prisma.campaignContact.findMany({
-          where: { campaignId },
-          select: { contactId: true }
-        });
-        const activeContactIds = activeContacts.map((c) => c.contactId);
-
-        // AUTO-RESET: Reset stuck/finished jobs to PENDING so they dial again on resume
-        await prisma.callJob.updateMany({
-          where: {
-            campaignId,
-            contactId: { in: activeContactIds },
-            status: { in: ['DISPATCHED', 'FAILED', 'COMPLETED'] }
-          },
-          data: { status: 'PENDING', attempts: 0 }
-        });
-
-        const targets = await prisma.campaignContact.findMany({
-          where: {
-            campaignId,
-            status: { notIn: ['EXCLUDED_DNC', 'CANCELLED'] }
-          },
-          include: {
-            contact: {
-              select: { id: true, isDoNotCall: true, phoneNumber: true }
-            }
-          }
-        });
-
-        logger.info({ campaignId, targetCount: targets.length }, 'Resume: background dispatching calls');
-
-        for (const target of targets) {
-          if (target.contact.isDoNotCall) continue;
-
-          // Find or create CallJob
-          let job = await prisma.callJob.findFirst({
-            where: { campaignId, contactId: target.contactId }
-          });
-
-          if (!job) {
-            try {
-              job = await prisma.callJob.create({
-                data: {
-                  campaignId,
-                  contactId: target.contactId,
-                  status: 'PENDING',
-                  attempts: 0,
-                  maxAttempts: updated.maxRetries || 3
-                }
-              });
-            } catch {
-              job = await prisma.callJob.findFirst({
-                where: { campaignId, contactId: target.contactId }
-              });
-            }
-          } else if (job.status === 'FAILED' || job.status === 'CANCELLED' || job.status === 'COMPLETED') {
-            try {
-              job = await prisma.callJob.update({
-                where: { id: job.id },
-                data: { status: 'PENDING', attempts: 0 }
-              });
-            } catch {
-              // ignore
-            }
-          }
-
-          if (!job) continue;
-
-          if (job.status === 'PENDING') {
-            const redisAvailable = Boolean(
-              (env.REDIS_HOST && env.REDIS_HOST !== '127.0.0.1') || process.env.REDIS_URL
-            );
-
-            let enqueuedViaBullMQ = false;
-
-            if (redisAvailable) {
-              try {
-                const { addOutboundCallJob } = await import('../queues/queueManager.js');
-                await addOutboundCallJob(
-                  { campaignId, contactId: target.contactId, callJobId: job.id, attemptNumber: job.attempts + 1 },
-                  {}
-                );
-                logger.info({ callJobId: job.id }, 'Call job enqueued via BullMQ');
-                enqueuedViaBullMQ = true;
-              } catch (err) {
-                logger.warn(
-                  { error: (err as Error).message, callJobId: job.id },
-                  'BullMQ enqueue failed in background; will fallback to direct dispatch'
-                );
-              }
-            }
-
-            // DO NOT fallback to direct dispatch if successfully enqueued via BullMQ, even on Render, to avoid double-dials.
-            if (!enqueuedViaBullMQ) {
-              const recentAttempt = await prisma.callAttempt.findFirst({
-                where: {
-                  callJob: { contactId: target.contactId },
-                  startedAt: { gte: new Date(Date.now() - 45 * 1000) }
-                }
-              });
-              if (recentAttempt) {
-                logger.info({ contactId: target.contactId }, 'Skipping direct dispatch: call already initiated in last 45s');
-                continue;
-              }
-
-              // In-memory lock to prevent race conditions causing double-dials
-              const lockKey = `${campaignId}-${target.contactId}`;
-              if (dispatchLocks.has(lockKey)) {
-                logger.info({ lockKey }, 'Skipping direct dispatch: locked by concurrent request');
-                continue;
-              }
-              dispatchLocks.add(lockKey);
-              setTimeout(() => dispatchLocks.delete(lockKey), 10000); // Release lock after 10s
-
-              logger.info({ callJobId: job.id, render: Boolean(process.env.RENDER) }, 'Direct call dispatch');
-              try {
-                void callWorker.processCallJob({
-                  id: `direct-${job.id}`,
-                  data: {
-                    campaignId,
-                    contactId: target.contactId,
-                    callJobId: job.id,
-                    attemptNumber: job.attempts + 1
-                  }
-                }).catch((directErr) => {
-                  logger.error(
-                    { error: (directErr as Error).message, callJobId: job.id },
-                    'Direct call execution failed'
-                  );
-                });
-              } catch (workerImportErr) {
-                logger.error({ error: (workerImportErr as Error).message }, 'Failed to import callWorker for direct dispatch');
-              }
-            }
-          }
-        }
-      } catch (bgError) {
-        logger.error({ err: bgError, campaignId }, 'Error in async background campaign dispatch');
-      }
-    });
+    triggerBackgroundCampaignDispatch(campaignId, updated.maxRetries || 3);
   } else if (targetStatus === CampaignStatus.PAUSED) {
     // Immediate pause: cancel in-flight queued/initiated/ringing attempts
     await prisma.callAttempt.updateMany({
@@ -908,6 +928,10 @@ export async function attachContactsToCampaign(
       details: `Attached or reset ${addedOrResetCount} contact(s) for campaign "${campaign.name}".`
     }
   });
+
+  if (campaign.status === CampaignStatus.RUNNING) {
+    triggerBackgroundCampaignDispatch(campaignId, campaign.maxRetries || 3);
+  }
 
   return { success: true, addedCount: addedOrResetCount };
 }

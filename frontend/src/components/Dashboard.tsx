@@ -42,6 +42,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   questionnaires,
   contacts,
   callLogs,
+  onOpenSimulator,
   onNavigateTab,
   onRunBatchSimulation,
   isSimulatingBatch

@@ -13,11 +13,13 @@ export default defineConfig(() => {
     },
     server: {
       port: 3000,
+      host: '0.0.0.0',
+      allowedHosts: true as const,
       proxy: {
         '/api': {
-          target: 'http://127.0.0.1:5000',
+          target: process.env.VITE_API_URL || 'https://auckland-accountin.onrender.com',
           changeOrigin: true,
-          secure: false
+          secure: true
         }
       },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

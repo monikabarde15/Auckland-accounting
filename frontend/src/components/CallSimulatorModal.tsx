@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Phone,
   PhoneOff,
+  PhoneCall,
   Mic,
   MicOff,
   Volume2,
@@ -16,9 +17,11 @@ import {
   Hash
 } from 'lucide-react';
 import { Questionnaire, Question, Contact, Campaign, CallLog, CallResponseRecord, CallStatus } from '../types';
+import { INITIAL_QUESTIONNAIRES, INITIAL_CONTACTS } from '../data/initialData';
 import { phoneAudio } from '../utils/audio';
 import { speechService, createSpeechRecognizer, AVAILABLE_VOICE_PROFILES } from '../utils/speech';
-import { Button, Badge, Modal } from './ui';
+import { Button, Badge, Modal, Input } from './ui';
+import { api } from '../services/api';
 
 interface CallSimulatorModalProps {
   isOpen: boolean;
@@ -52,10 +55,10 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
 }) => {
   const allQuestionnaires = (questionnaires && questionnaires.length > 0)
     ? questionnaires
-    : (questionnaire ? [questionnaire] : []);
+    : (questionnaire ? [questionnaire] : INITIAL_QUESTIONNAIRES);
   const allContacts = (contacts && contacts.length > 0)
     ? contacts
-    : (contact ? [contact] : []);
+    : (contact ? [contact] : INITIAL_CONTACTS);
   const allCampaigns = campaigns || [];
 
   const initialCampaignId = defaultCampaignId || (allCampaigns.length > 0 ? allCampaigns[0].id : '');
@@ -84,6 +87,11 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
   const [transcript, setTranscript] = useState<Array<{ speaker: 'system' | 'user'; text: string; timestamp: string }>>([]);
   const [responses, setResponses] = useState<CallResponseRecord[]>([]);
 
+  // Live Twilio Phone Call State
+  const [liveTargetPhone, setLiveTargetPhone] = useState<string>('');
+  const [isLiveCallingTwilio, setIsLiveCallingTwilio] = useState<boolean>(false);
+  const [liveTwilioStatus, setLiveTwilioStatus] = useState<string | null>(null);
+
   const timerRef = useRef<number | null>(null);
   const recognizerRef = useRef<ReturnType<typeof createSpeechRecognizer> | null>(null);
   const questionTimeoutRef = useRef<number | null>(null);
@@ -97,7 +105,11 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
     const qId = defaultQuestionnaireId || questionnaire?.id;
     if (qId) setSelectedQuestionnaireId(qId);
     const cId = defaultContactId || contact?.id;
-    if (cId) setSelectedContactId(cId);
+    if (cId) {
+      setSelectedContactId(cId);
+      const found = allContacts.find((c) => c.id === cId);
+      if (found?.phoneNumber) setLiveTargetPhone(found.phoneNumber);
+    }
   }, [defaultCampaignId, defaultQuestionnaireId, questionnaire, defaultContactId, contact]);
 
   const handleCampaignChange = (campId: string) => {
@@ -105,6 +117,14 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
     const camp = allCampaigns.find((c) => c.id === campId);
     if (camp?.questionnaireId) {
       setSelectedQuestionnaireId(camp.questionnaireId);
+    }
+  };
+
+  const handleContactChange = (cId: string) => {
+    setSelectedContactId(cId);
+    const found = allContacts.find((c) => c.id === cId);
+    if (found?.phoneNumber) {
+      setLiveTargetPhone(found.phoneNumber);
     }
   };
 
@@ -162,8 +182,68 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
     setIsPlayingVoiceSample(false);
   };
 
+  const handleDialRealPhoneViaTwilio = async () => {
+    let target = (liveTargetPhone || selectedContact?.phoneNumber || '').trim();
+    if (!target) {
+      alert('Please enter or select a recipient phone number (E.164 format, e.g. +917089526977).');
+      return;
+    }
+
+    // Auto-detect and format Indian 10-digit mobile numbers with +91
+    const digitsOnly = target.replace(/\D/g, '');
+    if (/^[6-9]\d{9}$/.test(digitsOnly) && !target.startsWith('+')) {
+      target = `+91${digitsOnly}`;
+    } else if (/^91[6-9]\d{9}$/.test(digitsOnly) && !target.startsWith('+')) {
+      target = `+${digitsOnly}`;
+    }
+
+    setIsLiveCallingTwilio(true);
+    setLiveTwilioStatus(`Dialing ${target} via Twilio Voice API...`);
+
+    const activeQuestion = currentQuestion || selectedQuestionnaire?.questions[0];
+    let promptToPlay = activeQuestion ? substituteVariables(activeQuestion.promptText) : '';
+    if (activeCampaign?.description && (!promptToPlay || !promptToPlay.includes(activeCampaign.description))) {
+      promptToPlay = `${substituteVariables(activeCampaign.description)}. ${promptToPlay}`;
+    }
+    if (!promptToPlay) {
+      promptToPlay = 'Kia ora. This is an automated message from Auckland Accounting regarding your account.';
+    }
+
+    try {
+      const res = await api.testLiveCall({
+        phoneNumber: target,
+        callerId: activeCampaign?.callerId,
+        campaignId: selectedCampaignId,
+        questionnaireId: selectedQuestionnaireId,
+        promptText: promptToPlay,
+        questionnaire: selectedQuestionnaire,
+        currentQuestionId: activeQuestion?.id,
+        contact: selectedContact
+      });
+
+      if (res.success && res.data?.callSid) {
+        setLiveTwilioStatus(`Call Placed! SID: ${res.data.callSid.substring(0, 10)}... Phone is ringing! Pick up to hear the prompt.`);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            speaker: 'system',
+            text: `[Live Outbound Call Placed to ${target} via Twilio]: Prompt: "${promptToPlay}"`,
+            timestamp: getNowTimeString()
+          }
+        ]);
+      } else {
+        setLiveTwilioStatus(`Call Failed: ${res.error?.message || 'Twilio call could not be placed'}`);
+      }
+    } catch (err: any) {
+      setLiveTwilioStatus(`Error: ${err.message || 'Call failed'}`);
+    } finally {
+      setIsLiveCallingTwilio(false);
+    }
+  };
+
   const startCall = () => {
-    if (!selectedQuestionnaire) return;
+    const activeQ = selectedQuestionnaire || allQuestionnaires[0] || INITIAL_QUESTIONNAIRES[0];
+    if (!activeQ) return;
     setCallDuration(0);
     setTranscript([]);
     setResponses([]);
@@ -184,10 +264,10 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
         setCallState('connected');
         setStatusMessage('Call connected. Audio stream active.');
 
-        const startQId = selectedQuestionnaire.startingQuestionId || selectedQuestionnaire.questions[0]?.id;
+        const startQId = activeQ.startingQuestionId || activeQ.questions[0]?.id;
         transitionToQuestion(startQId);
-      }, 2000);
-    }, 1000);
+      }, 1500);
+    }, 800);
   };
 
   const transitionToQuestion = (qId: string | 'END' | 'REPEAT' | undefined) => {
@@ -603,7 +683,7 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
             <select
               disabled={callState !== 'idle' && callState !== 'ended'}
               value={selectedContactId}
-              onChange={(e) => setSelectedContactId(e.target.value)}
+              onChange={(e) => handleContactChange(e.target.value)}
               className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs text-slate-800 disabled:opacity-60"
             >
               {allContacts.map((c) => (
@@ -677,15 +757,79 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
             {/* Action buttons & DTMF keys */}
             <div className="space-y-3">
               {callState === 'idle' || callState === 'ended' ? (
-                <Button
-                  variant="primary"
-                  size="md"
-                  onClick={startCall}
-                  className="w-full"
-                  leftIcon={<Phone className="w-4 h-4" />}
-                >
-                  Place Test Voice Call
-                </Button>
+                <div className="space-y-3">
+                  <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-[#0f2e4a] uppercase tracking-wide flex items-center gap-1.5">
+                        <Headphones className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Instant In-Browser AI Call (No Setup Required)</span>
+                      </span>
+                      <Badge variant="info" size="xs">Recommended</Badge>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-normal">
+                      Turant call test karein! AI voice prompt bolega, aap keyboard/screen par dialpad 1/2 daba sakte hain aur response record hoga.
+                    </p>
+                    <Button
+                      variant="primary"
+                      size="md"
+                      onClick={startCall}
+                      className="w-full bg-[#0f2e4a] hover:bg-[#163e63] text-white font-semibold shadow-xs"
+                      leftIcon={<PhoneCall className="w-4 h-4 text-emerald-400" />}
+                    >
+                      📞 Start Browser Test Call
+                    </Button>
+                  </div>
+
+                  {/* Real Phone Call via Twilio */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                        <Phone className="w-3.5 h-3.5 text-slate-600" />
+                        <span>Real Mobile Phone Call (Twilio Voice API)</span>
+                      </span>
+                      <Badge variant="neutral" size="xs">Physical Handset</Badge>
+                    </div>
+
+                    <div className="text-[11px] text-slate-500">
+                      Apne mobile par call receive karne ke liye number enter karein:
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={liveTargetPhone || selectedContact?.phoneNumber || ''}
+                        onChange={(e) => setLiveTargetPhone(e.target.value)}
+                        placeholder="+917089526977"
+                        className="flex-1 px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={handleDialRealPhoneViaTwilio}
+                        disabled={isLiveCallingTwilio}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 font-medium"
+                        leftIcon={<Phone className="w-3.5 h-3.5" />}
+                      >
+                        {isLiveCallingTwilio ? 'Dialing...' : 'Dial Phone'}
+                      </Button>
+                    </div>
+
+                    {liveTwilioStatus && (
+                      <div className={`p-2.5 rounded text-[11px] leading-relaxed ${
+                        liveTwilioStatus.includes('Error') || liveTwilioStatus.includes('Failed')
+                          ? 'bg-amber-50 border border-amber-300 text-amber-900'
+                          : 'bg-white border border-emerald-300 text-emerald-800 font-medium'
+                      }`}>
+                        {liveTwilioStatus}
+                        {liveTwilioStatus.includes('Trial') && (
+                          <div className="mt-1 pt-1 border-t border-amber-200 text-[10px] text-amber-800">
+                            💡 <strong>Tip:</strong> Twilio free trial physical phone par call block karta hai. Turant test karne ke liye upar <strong>"Start Browser Test Call"</strong> par click karein!
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : callState === 'dialing' || callState === 'ringing' ? (
                 <div className="py-4 text-center text-xs text-slate-500 space-y-1">
                   <RotateCcw className="w-4 h-4 animate-spin mx-auto text-[#0f2e4a]" />

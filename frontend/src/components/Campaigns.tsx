@@ -325,19 +325,29 @@ export const Campaigns: React.FC<CampaignsProps> = ({
 
       // 1. INSTANT OPTIMISTIC UI UPDATE RIGHT NOW! (0ms!)
       onSaveCampaign(updatedCampaign);
+      setExecutingCampaignId(null);
+      isExecutingRef.current = false;
 
-      // Resolve callable contacts for this campaign
-      const matchedContacts = Array.isArray(campaign.targetContactIds)
+      // Resolve callable contacts for this campaign (any saved contact, India or international)
+      let matchedContacts = Array.isArray(campaign.targetContactIds) && campaign.targetContactIds.length > 0
         ? contacts.filter((ct) => campaign.targetContactIds?.includes(ct.id))
         : campaign.targetGroups && campaign.targetGroups.length > 0
         ? contacts.filter((ct) => ct.groups?.some((g) => campaign.targetGroups?.includes(typeof g === 'string' ? g : (g as any).name)))
         : [];
+      if (matchedContacts.length === 0) {
+        matchedContacts = contacts.filter((ct) => !ct.isDoNotCall);
+      }
       const callableContactIds = matchedContacts.map((ct) => ct.id);
+
+      // Pre-sync selected contacts to backend campaign audience so database matches user selection
+      if (callableContactIds.length > 0) {
+        await api.attachContactsToCampaign(campaign.id, { contactIds: callableContactIds }).catch(() => {});
+      }
 
       try {
         let res = action === 'START'
-          ? await api.startCampaign(campaign.id)
-          : await api.resumeCampaign(campaign.id);
+          ? await api.startCampaign(campaign.id, { contactIds: callableContactIds })
+          : await api.resumeCampaign(campaign.id, { contactIds: callableContactIds });
 
         // If campaign does not exist in backend database yet, create/sync it first!
         if (action === 'START' && res.error && (res.error.code === 'NOT_FOUND' || res.error.message?.toLowerCase().includes('not found'))) {
@@ -373,6 +383,8 @@ export const Campaigns: React.FC<CampaignsProps> = ({
       }
 
       onSaveCampaign(updatedCampaign);
+      // Automatically open Live Call Monitor so the user sees real-time call progress
+      setLiveQueueCampaign(updatedCampaign);
     } catch (err: any) {
       alert(err.message || 'Operation failed');
     } finally {
@@ -387,6 +399,11 @@ export const Campaigns: React.FC<CampaignsProps> = ({
       alert('Permission denied. You do not have permission to pause campaigns (campaigns.pause).');
       return;
     }
+    setExecutingCampaignId(null);
+    isExecutingRef.current = false;
+    phoneAudio.stopRingtone();
+    speechService.stop();
+
     // Optimistic instant UI update
     onSaveCampaign({ ...campaign, status: 'paused' });
     if (liveQueueCampaign?.id === campaign.id) {
@@ -406,6 +423,11 @@ export const Campaigns: React.FC<CampaignsProps> = ({
       alert('Permission denied. You do not have permission to cancel campaigns (campaigns.cancel).');
       return;
     }
+    setExecutingCampaignId(null);
+    isExecutingRef.current = false;
+    phoneAudio.stopRingtone();
+    speechService.stop();
+
     // Optimistic instant UI update
     onSaveCampaign({ ...campaign, status: 'cancelled' });
     if (liveQueueCampaign?.id === campaign.id) {
@@ -650,33 +672,25 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                 }
               ];
 
-              if (onLaunchSimulator && hasPermission('calls.execute')) {
-                dropdownItems.push({
-                  label: 'Test in Simulator',
-                  icon: <Phone className="w-3.5 h-3.5 text-blue-600" />,
-                  onClick: () => onLaunchSimulator(c.id)
-                });
-              }
-
               if ((s === 'DRAFT' || s === 'READY' || s === 'SCHEDULED') && hasPermission('campaigns.start')) {
                 dropdownItems.push({
                   label: 'Start Campaign',
                   icon: <Play className="w-3.5 h-3.5 text-emerald-600" />,
-                  onClick: () => setConfirmAction({ campaign: c, action: 'START' })
+                  onClick: () => handleDirectStartOrResume(c, 'START')
                 });
               }
               if (s === 'RUNNING' && hasPermission('campaigns.pause')) {
                 dropdownItems.push({
                   label: 'Pause Campaign',
                   icon: <Pause className="w-3.5 h-3.5 text-amber-600" />,
-                  onClick: () => setConfirmAction({ campaign: c, action: 'PAUSE' })
+                  onClick: () => handleDirectPause(c)
                 });
               }
               if (s === 'PAUSED' && hasPermission('campaigns.resume')) {
                 dropdownItems.push({
                   label: 'Resume Campaign',
                   icon: <Play className="w-3.5 h-3.5 text-emerald-600" />,
-                  onClick: () => setConfirmAction({ campaign: c, action: 'RESUME' })
+                  onClick: () => handleDirectStartOrResume(c, 'RESUME')
                 });
               }
               if (s !== 'RUNNING' && hasPermission('campaigns.edit')) {
@@ -771,7 +785,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                           variant="primary"
                           size="xs"
                           className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
-                          onClick={() => setConfirmAction({ campaign: c, action: 'START' })}
+                          onClick={() => handleDirectStartOrResume(c, 'START')}
                           leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
                           disabled={!hasPermission('campaigns.start') || isThisExecuting}
                           title="Start Outbound Campaign"
@@ -785,7 +799,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                             variant="outline"
                             size="xs"
                             className="border-amber-500 text-amber-700 hover:bg-amber-50 font-medium whitespace-nowrap"
-                            onClick={() => setConfirmAction({ campaign: c, action: 'PAUSE' })}
+                            onClick={() => handleDirectPause(c)}
                             leftIcon={<Pause className="w-3 h-3" />}
                             disabled={!hasPermission('campaigns.pause')}
                             title="Pause Campaign Dialing"
@@ -796,7 +810,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                             variant="outline"
                             size="xs"
                             className="border-rose-400 text-rose-700 hover:bg-rose-50 font-medium whitespace-nowrap"
-                            onClick={() => setConfirmAction({ campaign: c, action: 'CANCEL' })}
+                            onClick={() => handleDirectStop(c)}
                             leftIcon={<StopCircle className="w-3 h-3 text-rose-600" />}
                             disabled={!hasPermission('campaigns.cancel')}
                             title="Stop Campaign Dialing"
@@ -811,7 +825,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                             variant="primary"
                             size="xs"
                             className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent font-medium shadow-sm whitespace-nowrap"
-                            onClick={() => setConfirmAction({ campaign: c, action: 'RESUME' })}
+                            onClick={() => handleDirectStartOrResume(c, 'RESUME')}
                             leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
                             disabled={!hasPermission('campaigns.resume') || isThisExecuting}
                             title="Resume Campaign Dialing"
@@ -822,7 +836,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                             variant="outline"
                             size="xs"
                             className="border-rose-400 text-rose-700 hover:bg-rose-50 font-medium whitespace-nowrap"
-                            onClick={() => setConfirmAction({ campaign: c, action: 'CANCEL' })}
+                            onClick={() => handleDirectStop(c)}
                             leftIcon={<StopCircle className="w-3 h-3 text-rose-600" />}
                             disabled={!hasPermission('campaigns.cancel')}
                             title="Stop Campaign Dialing"
@@ -836,7 +850,7 @@ export const Campaigns: React.FC<CampaignsProps> = ({
                           variant="outline"
                           size="xs"
                           className="text-slate-600 hover:text-slate-900 border-slate-300 font-medium whitespace-nowrap"
-                          onClick={() => setConfirmAction({ campaign: c, action: 'START' })}
+                          onClick={() => handleDirectStartOrResume(c, 'START')}
                           leftIcon={isThisExecuting ? <Activity className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                           disabled={!hasPermission('campaigns.start') || isThisExecuting}
                           title="Restart Campaign"
@@ -1144,100 +1158,80 @@ const CampaignWizardModal: React.FC<CampaignWizardModalProps> = ({
       return;
     }
 
-    setIsSaving(true);
-    try {
-      if (campaignToEdit) {
-        let updatedCampaign: Campaign = {
-          ...campaignToEdit,
+    if (campaignToEdit) {
+      const updatedCampaign: Campaign = {
+        ...campaignToEdit,
+        ...formData,
+        name: formData.name.trim(),
+        targetContactIds: selectedContactIds,
+        targetGroups: [],
+        contactCount: selectedContactIds.length
+      };
+
+      // 1. INSTANT OPTIMISTIC SAVE (0ms UI latency - never hangs!)
+      onSave(updatedCampaign);
+      onClose();
+
+      // 2. Parallel background sync to API
+      Promise.all([
+        api.updateCampaign(campaignToEdit.id, {
           ...formData,
           name: formData.name.trim(),
-          targetContactIds: selectedContactIds,
-          targetGroups: [],
-          contactCount: selectedContactIds.length
-        };
+          targetContactIds: selectedContactIds
+        }),
+        api.attachContactsToCampaign(campaignToEdit.id, {
+          contactIds: selectedContactIds
+        })
+      ]).catch(() => {});
+      return;
+    }
 
-        try {
-          const res = await api.updateCampaign(campaignToEdit.id, {
-            ...formData,
-            name: formData.name.trim(),
-            targetContactIds: selectedContactIds
-          });
-          if (res.success && res.data) {
-            updatedCampaign = {
-              ...res.data,
-              targetContactIds: selectedContactIds,
-              targetGroups: [],
-              contactCount: selectedContactIds.length
-            };
-          }
-        } catch {
-          // Local fallback handled
-        }
+    // Brand new campaign creation
+    const newTempId = `camp_${Date.now()}`;
+    const localCampaign: Campaign = {
+      id: newTempId,
+      name: formData.name.trim(),
+      description: formData.description,
+      callerId: formData.callerId || '',
+      callerName: formData.callerName || 'Auckland Accounting Services',
+      questionnaireId: formData.questionnaireId,
+      status: 'draft',
+      callingStartTime: formData.callingStartTime,
+      callingEndTime: formData.callingEndTime,
+      daysOfWeek: formData.daysOfWeek,
+      timezone: formData.timezone,
+      maxConcurrentCalls: formData.maxConcurrentCalls,
+      dailyCallLimit: formData.dailyCallLimit,
+      maxCalls: formData.maxCalls,
+      maxCost: formData.maxCost,
+      retryEnabled: formData.retryEnabled,
+      maxRetries: formData.maxRetries,
+      retryIntervalMinutes: formData.retryIntervalMinutes,
+      targetContactIds: selectedContactIds,
+      targetGroups: [],
+      contactCount: selectedContactIds.length,
+      createdAt: new Date().toISOString()
+    };
 
-        try {
-          await api.attachContactsToCampaign(campaignToEdit.id, {
-            contactIds: selectedContactIds
-          });
-        } catch {
-          // Ignore if already attached via updateCampaign
-        }
+    // 1. Instant optimistic save & close
+    onSave(localCampaign);
+    onClose();
 
-        onSave(updatedCampaign);
-        onClose();
-        return;
-      }
-
-      // Brand new campaign creation
-      const res = await api.createCampaign({
-        ...formData,
-        targetContactIds: selectedContactIds
-      });
-
+    // 2. Background sync to backend API
+    api.createCampaign({
+      id: newTempId,
+      ...formData,
+      targetContactIds: selectedContactIds
+    }).then((res) => {
       if (res.success && res.data) {
-        try {
-          await api.attachContactsToCampaign(res.data.id, {
-            contactIds: selectedContactIds
-          });
-        } catch {}
         onSave({
           ...res.data,
           targetContactIds: selectedContactIds,
           targetGroups: [],
           contactCount: selectedContactIds.length
         });
-      } else {
-        const localCampaign: Campaign = {
-          id: `camp_${Date.now()}`,
-          name: formData.name || 'New Campaign',
-          description: formData.description,
-          callerId: formData.callerId || '',
-          callerName: formData.callerName || 'Auckland Accounting Services',
-          questionnaireId: formData.questionnaireId,
-          status: 'draft',
-          callingStartTime: formData.callingStartTime,
-          callingEndTime: formData.callingEndTime,
-          daysOfWeek: formData.daysOfWeek,
-          timezone: formData.timezone,
-          maxConcurrentCalls: formData.maxConcurrentCalls,
-          dailyCallLimit: formData.dailyCallLimit,
-          maxCalls: formData.maxCalls,
-          maxCost: formData.maxCost,
-          retryEnabled: formData.retryEnabled,
-          maxRetries: formData.maxRetries,
-          retryIntervalMinutes: formData.retryIntervalMinutes,
-          targetContactIds: selectedContactIds,
-          targetGroups: [],
-          contactCount: selectedContactIds.length,
-          createdAt: new Date().toISOString()
-        };
-        onSave(localCampaign);
       }
-      onClose();
-    } catch (err: any) {
-      alert(err.message || 'Failed to save campaign');
-    } finally {
-      setIsSaving(false);
-    }
+    }).catch(() => {});
   };
 
   const steps = [

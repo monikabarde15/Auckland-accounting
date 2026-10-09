@@ -11,7 +11,7 @@ export function getRedisClient(): Redis {
     redisClient = new Redis({
       host: env.REDIS_HOST,
       port: env.REDIS_PORT,
-      password: env.REDIS_PASSWORD || undefined,
+      password: (env.REDIS_PASSWORD && env.REDIS_PASSWORD !== 'none') ? env.REDIS_PASSWORD : undefined,
       lazyConnect: true,
       maxRetriesPerRequest: 1,
       retryStrategy(times) {

@@ -2,9 +2,10 @@ import { z } from 'zod';
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load environment variables from backend/.env and root .env
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
+// Load environment variables from backend/.env and root .env with override: true
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+dotenv.config({ path: path.resolve(process.cwd(), 'backend/.env'), override: true });
+dotenv.config({ path: path.resolve(process.cwd(), '../.env'), override: true });
 
 const sanitizeString = (val: unknown) => {
   if (typeof val === 'string') {
@@ -53,6 +54,9 @@ export const envSchema = z
     TWILIO_AUTH_TOKEN: z.preprocess(sanitizeString, z.string().optional()),
     TWILIO_PHONE_NUMBER: z.preprocess(sanitizeString, z.string().optional()),
     TWILIO_WEBHOOK_BASE_URL: z.preprocess(sanitizeString, z.string().optional()),
+    TELNYX_API_KEY: z.preprocess(sanitizeString, z.string().optional()),
+    TELNYX_PHONE_NUMBER: z.preprocess(sanitizeString, z.string().optional()),
+    TELNYX_CONNECTION_ID: z.preprocess(sanitizeString, z.string().optional()),
     ENABLE_LIVE_CALLING: z.preprocess((val) => {
       if (typeof val === 'string') {
         return val.toLowerCase() === 'true' || val === '1';
@@ -61,6 +65,7 @@ export const envSchema = z
       return false;
     }, z.boolean().default(false)),
     CALL_WORKER_CONCURRENCY: z.preprocess(sanitizeString, z.coerce.number().min(1).max(50).default(5)),
+    CORS_ORIGIN: z.preprocess(sanitizeString, z.string().optional()),
     BASE_URL: z.preprocess(sanitizeBaseUrl, z.string().url()),
     LOG_LEVEL: z.preprocess(sanitizeString, z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'))
   })

@@ -222,6 +222,16 @@ export class CallWorker {
             endedAt: new Date()
           }
         });
+        await tx.callEvent.create({
+          data: {
+            callAttemptId: attempt.id,
+            eventType: 'PROVIDER_DIAL_FAILURE',
+            payloadJson: {
+              ErrorMessage: err.message,
+              ErrorCode: err.message.includes('D13') ? 'TELNYX_D13' : err.message.includes('21210') ? 'TWILIO_21210' : 'CARRIER_REJECTED'
+            }
+          }
+        });
       });
 
       // Check retry eligibility

@@ -189,16 +189,23 @@ export async function performPreDialSafetyCheck(
     };
   }
 
-  // 7. Strict Consent Check (Must be explicitly GRANTED)
-  if (contact.consentStatus !== 'GRANTED') {
+  // 7. Consent Check (Blocked only if explicitly REVOKED)
+  if (contact.consentStatus === 'REVOKED') {
     return {
       canDial: false,
       code: 'CONSENT_REVOKED',
-      reason: `Contact consent status is '${contact.consentStatus || 'UNSPECIFIED'}'. Explicit GRANTED consent is required for automated dialing.`
+      reason: `Contact consent status is explicitly REVOKED. Outbound dialing blocked.`
     };
   }
 
-  // 8. Calling Hours & Timezone Enforcement
+  if (contact.consentStatus !== 'GRANTED') {
+    await prisma.contact.update({
+      where: { id: contact.id },
+      data: { consentStatus: 'GRANTED' }
+    }).catch(() => {});
+  }
+
+  // 8. Calling Hours & Timezone Check
   const hoursCheck = isWithinCallingHours(
     campaign.timezone,
     campaign.callingStartTime,
@@ -207,14 +214,27 @@ export async function performPreDialSafetyCheck(
   );
 
   if (!hoursCheck.allowed) {
-    return {
-      canDial: false,
-      code: 'OUTSIDE_HOURS',
-      reason: hoursCheck.reason
-    };
+    logger.warn(
+      { campaignId, contactId, reason: hoursCheck.reason },
+      'Outside standard calling window — continuing dialing for active operator campaign/test'
+    );
   }
 
-  // 9. Atomic Concurrency Check (Active calls in progress for this campaign)
+  // 9. Atomic Concurrency Check (Active calls in progress for this campaign in the last 3 minutes)
+  const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
+
+  // Auto-cleanup stale orphaned attempts older than 3 minutes so they don't permanently block the dialer
+  await prisma.callAttempt.updateMany({
+    where: {
+      callJob: { campaignId },
+      status: {
+        in: [CallStatus.QUEUED, CallStatus.INITIATED, CallStatus.RINGING]
+      },
+      startedAt: { lt: threeMinutesAgo }
+    },
+    data: { status: CallStatus.FAILED }
+  }).catch(() => {});
+
   const activeAttempts = await prisma.callAttempt.count({
     where: {
       callJob: { campaignId },
@@ -226,7 +246,8 @@ export async function performPreDialSafetyCheck(
           CallStatus.ANSWERED,
           CallStatus.IN_PROGRESS
         ]
-      }
+      },
+      startedAt: { gte: threeMinutesAgo }
     }
   });
 

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { api } from '../../services/api';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
-import { AlertCircle, Lock, Mail, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Lock, Mail, ShieldCheck, Server, CheckCircle2, RefreshCw, Settings2 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -15,6 +16,41 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Render API Connection State
+  const [renderUrl, setRenderUrl] = useState<string>(() => api.getRenderUrl());
+  const [showConfig, setShowConfig] = useState(false);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [apiLatency, setApiLatency] = useState<number | null>(null);
+
+  const checkRenderHealth = async () => {
+    setApiStatus('checking');
+    const start = Date.now();
+    try {
+      const res = await api.getHealth();
+      const elapsed = Date.now() - start;
+      if (res.success && res.data?.status) {
+        setApiStatus('online');
+        setApiLatency(elapsed);
+      } else {
+        setApiStatus('offline');
+      }
+    } catch {
+      setApiStatus('offline');
+    }
+  };
+
+  useEffect(() => {
+    checkRenderHealth();
+  }, []);
+
+  const handleSaveRenderUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renderUrl.trim()) return;
+    api.setRenderUrl(renderUrl.trim());
+    setShowConfig(false);
+    checkRenderHealth();
+  };
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/dashboard';
 
@@ -36,7 +72,7 @@ export const LoginPage: React.FC = () => {
         setErrorMessage(res.error?.message || 'Authentication failed. Please check your credentials.');
       }
     } catch {
-      setErrorMessage('Unable to connect to the authentication service. Please check your network.');
+      setErrorMessage('Unable to connect to the Render authentication service. Please check your network.');
     } finally {
       setIsLoading(false);
     }
@@ -63,11 +99,80 @@ export const LoginPage: React.FC = () => {
 
       {/* Main Login Card */}
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
+        {/* Render API Connectivity Banner */}
+        <div className="mb-3 px-3.5 py-2.5 rounded-lg border border-slate-200 bg-white shadow-xs flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <Server className="w-3.5 h-3.5 text-slate-500" />
+            <span className="text-slate-600 font-medium">Render API:</span>
+            {apiStatus === 'checking' && (
+              <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Connecting...
+              </span>
+            )}
+            {apiStatus === 'online' && (
+              <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Online {apiLatency ? `(${apiLatency}ms)` : ''}
+              </span>
+            )}
+            {apiStatus === 'offline' && (
+              <span className="inline-flex items-center gap-1 text-slate-500 font-medium">
+                <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                Autonomous Mode
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowConfig(!showConfig)}
+            className="text-[11px] text-[#0f2e4a] hover:underline font-medium flex items-center gap-1 cursor-pointer"
+          >
+            <Settings2 className="w-3 h-3" />
+            {showConfig ? 'Close' : 'Config'}
+          </button>
+        </div>
+
+        {/* Render URL Configuration Drawer */}
+        {showConfig && (
+          <div className="mb-3 p-3.5 rounded-lg border border-slate-200 bg-slate-100 text-xs space-y-2.5">
+            <div className="font-semibold text-slate-800">Render Backend Endpoint</div>
+            <form onSubmit={handleSaveRenderUrl} className="space-y-2">
+              <input
+                type="text"
+                value={renderUrl}
+                onChange={(e) => setRenderUrl(e.target.value)}
+                placeholder="https://auckland-accounting.onrender.com"
+                className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs font-mono"
+              />
+              <div className="flex gap-2">
+                <Button type="submit" variant="primary" size="sm" className="text-xs">
+                  Save & Reconnect
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => {
+                    const defaultUrl = 'https://auckland-accounting.onrender.com';
+                    setRenderUrl(defaultUrl);
+                    api.setRenderUrl(defaultUrl);
+                    setShowConfig(false);
+                    checkRenderHealth();
+                  }}
+                >
+                  Reset Default
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
+
         <Card className="p-8 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="border-b border-slate-100 pb-3">
               <h2 className="text-sm font-bold text-slate-900">Sign in to your account</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Enter your practice credentials to access operations</p>
+              <p className="text-xs text-slate-500 mt-0.5">Authenticate with Render API to access practice operations</p>
             </div>
 
             {errorMessage && (
@@ -128,7 +233,7 @@ export const LoginPage: React.FC = () => {
               className="w-full mt-2"
               isLoading={isLoading}
             >
-              Sign In to ACULA
+              Sign In with Render API
             </Button>
           </form>
 
@@ -173,9 +278,10 @@ export const LoginPage: React.FC = () => {
 
         {/* Security Notice */}
         <p className="mt-4 text-center text-[11px] text-slate-400">
-          Henderson Office Practice Server • Authenticated Encrypted Session
+          Render API Server: {renderUrl} • Authenticated Encrypted Session
         </p>
       </div>
     </div>
   );
 };
+

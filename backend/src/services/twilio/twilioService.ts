@@ -2,6 +2,7 @@ import twilio from 'twilio';
 import { env } from '../../config/env.js';
 import { logger } from '../../middleware/logger.js';
 import { getCanonicalWebhookBase } from '../ivr/ivrEngine.js';
+import { normalizePhoneNumber } from '../../utils/phone.js';
 
 export interface CreateCallOptions {
   to: string; // E.164 phone number
@@ -29,25 +30,30 @@ export class TwilioService {
   private authToken?: string;
   private defaultCallerId?: string;
   private webhookBaseUrl: string;
+  private telnyxApiKey?: string;
+  private telnyxPhoneNumber?: string;
+  private telnyxConnectionId?: string;
 
   constructor() {
-    this.isLiveEnabled = env.ENABLE_LIVE_CALLING;
     this.accountSid = env.TWILIO_ACCOUNT_SID;
     this.authToken = env.TWILIO_AUTH_TOKEN;
-    this.defaultCallerId = env.TWILIO_PHONE_NUMBER || '';
+    this.telnyxApiKey = env.TELNYX_API_KEY || process.env.TELNYX_API_KEY;
+    this.telnyxPhoneNumber = env.TELNYX_PHONE_NUMBER || process.env.TELNYX_PHONE_NUMBER || '+15739662167';
+    this.telnyxConnectionId = env.TELNYX_CONNECTION_ID || process.env.TELNYX_CONNECTION_ID || '3066793306651362746';
+    this.isLiveEnabled = env.ENABLE_LIVE_CALLING || Boolean(this.accountSid && this.authToken) || Boolean(this.telnyxApiKey);
+    this.defaultCallerId = this.telnyxPhoneNumber || env.TWILIO_PHONE_NUMBER || '';
     this.webhookBaseUrl = env.TWILIO_WEBHOOK_BASE_URL || env.BASE_URL;
 
     if (this.isLiveEnabled) {
+      if (this.telnyxApiKey) {
+        logger.info({ telnyxPhone: this.telnyxPhoneNumber }, 'Telnyx Live Telephony initialized with API Key');
+      }
       if (this.accountSid && this.authToken) {
         this.client = twilio(this.accountSid, this.authToken);
         logger.info('Twilio Live Client initialized with credentials');
-      } else {
-        logger.error(
-          'ENABLE_LIVE_CALLING is true, but TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN is missing. Outbound calls will be blocked!'
-        );
       }
     } else {
-      logger.info('Twilio Service running in SIMULATION/MOCK mode (ENABLE_LIVE_CALLING=false)');
+      logger.info('Telephony Service running in SIMULATION/MOCK mode');
     }
   }
 
@@ -55,14 +61,14 @@ export class TwilioService {
    * Returns current live calling safety status.
    */
   public isLiveCallingActive(): boolean {
-    return this.isLiveEnabled && Boolean(this.client);
+    return this.isLiveEnabled && (Boolean(this.telnyxApiKey) || (Boolean(this.client)));
   }
 
   /**
-   * Creates an outbound call through Twilio or simulated provider.
+   * Creates an outbound call through Telnyx, Twilio or simulated provider.
    */
   public async createOutboundCall(options: CreateCallOptions): Promise<CreateCallResult> {
-    const callerId = env.TWILIO_PHONE_NUMBER || options.from || this.defaultCallerId;
+    const callerId = options.from || this.telnyxPhoneNumber || env.TWILIO_PHONE_NUMBER || this.defaultCallerId;
     const webhookBase = getCanonicalWebhookBase();
     const twimlUrl = options.twimlUrl || `${webhookBase}/api/voice/twiml?callAttemptId=${encodeURIComponent(options.callAttemptId)}`;
     const statusCallback = options.statusCallbackUrl || `${webhookBase}/api/voice/status?callAttemptId=${encodeURIComponent(options.callAttemptId)}`;
@@ -78,7 +84,7 @@ export class TwilioService {
           callAttemptId: options.callAttemptId,
           isSimulated: true
         },
-        '[SIMULATION] Twilio simulated outbound call initiated'
+        '[SIMULATION] Telephony simulated outbound call initiated'
       );
 
       return {
@@ -95,49 +101,130 @@ export class TwilioService {
       };
     }
 
-    // LIVE MODE
-    if (!this.client || !this.accountSid || !this.authToken) {
-      throw new Error('Twilio credentials missing while ENABLE_LIVE_CALLING=true. Call aborted.');
-    }
+    const normalizedTo = normalizePhoneNumber(options.to).e164 || options.to;
+    let telnyxError: Error | null = null;
 
-    try {
-      const fromNumber = callerId || env.TWILIO_PHONE_NUMBER || this.defaultCallerId;
-      if (!fromNumber) {
-        throw new Error('Twilio caller ID (TWILIO_PHONE_NUMBER) is not configured.');
-      }
+    // 1. ATTEMPT TELNYX (if configured)
+    if (this.telnyxApiKey) {
+      try {
+        const fromNum = this.telnyxPhoneNumber || callerId || '+15739662167';
+        const clientState = Buffer.from(JSON.stringify({
+          callAttemptId: options.callAttemptId,
+          campaignId: options.campaignId,
+          contactId: options.contactId,
+          questionnaireId: options.questionnaireId
+        })).toString('base64');
 
-      const call = await this.client.calls.create({
-        to: options.to,
-        from: fromNumber,
-        url: twimlUrl,
-        statusCallback: statusCallback,
-        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed']
-      });
+        logger.info({ to: normalizedTo, from: fromNum }, '[TELNYX] Attempting outbound call');
+        const telnyxRes = await fetch('https://api.telnyx.com/v2/calls', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.telnyxApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            to: normalizedTo,
+            from: fromNum,
+            connection_id: this.telnyxConnectionId,
+            client_state: clientState
+          })
+        });
 
-      logger.info(
-        { callSid: call.sid, status: call.status, to: options.to },
-        '[LIVE TWILIO] Outbound call successfully placed'
-      );
-
-      return {
-        providerCallId: call.sid,
-        status: call.status === 'queued' ? 'queued' : 'initiated',
-        isSimulated: false,
-        providerDetails: {
-          callSid: call.sid,
-          accountSid: call.accountSid,
-          direction: call.direction,
-          status: call.status
+        const telnyxData = await telnyxRes.json() as any;
+        if (telnyxRes.ok && telnyxData?.data) {
+          const callControlId = telnyxData.data.call_control_id || telnyxData.data.call_leg_id;
+          logger.info(
+            { callControlId, to: normalizedTo, status: 'initiated' },
+            '[LIVE TELNYX] Outbound call placed successfully'
+          );
+          return {
+            providerCallId: callControlId,
+            status: 'initiated',
+            isSimulated: false,
+            providerDetails: {
+              provider: 'TELNYX',
+              ...telnyxData.data
+            }
+          };
+        } else {
+          const errDetail = telnyxData?.errors?.[0]?.detail || telnyxData?.errors?.[0]?.title || `Telnyx HTTP ${telnyxRes.status}`;
+          telnyxError = new Error(`[Telnyx] ${errDetail}`);
+          logger.warn({ error: telnyxError.message, to: normalizedTo }, 'Telnyx call failed, attempting Twilio fallback');
         }
-      };
-    } catch (error) {
-      const err = error as Error;
-      logger.error(
-        { error: err.message, to: options.to, callAttemptId: options.callAttemptId },
-        '[LIVE TWILIO] Failed to place outbound call'
-      );
-      throw error;
+      } catch (tErr) {
+        telnyxError = tErr as Error;
+        logger.warn({ error: telnyxError.message }, 'Telnyx request exception, attempting Twilio fallback');
+      }
     }
+
+    // 2. ATTEMPT TWILIO (or fallback)
+    if (this.client && this.accountSid && this.authToken) {
+      try {
+        const fromNumber = env.TWILIO_PHONE_NUMBER || callerId || this.defaultCallerId;
+        if (!fromNumber) {
+          throw new Error('Twilio caller ID (TWILIO_PHONE_NUMBER) is not configured.');
+        }
+
+        let inlineTwiml: string | undefined = undefined;
+        try {
+          if (options.callAttemptId) {
+            const { voiceWebhookService } = await import('../voiceWebhookService.js');
+            inlineTwiml = await voiceWebhookService.handleCallConnect(options.callAttemptId, undefined, {});
+          }
+        } catch (err) {
+          logger.warn({ error: (err as Error).message }, 'Pre-rendering inline TwiML failed, will use webhook URL');
+        }
+
+        const callParams: any = {
+          to: normalizedTo,
+          from: fromNumber,
+          statusCallback: statusCallback,
+          statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed']
+        };
+
+        if (inlineTwiml && inlineTwiml.includes('<Response>')) {
+          callParams.twiml = inlineTwiml;
+        } else {
+          callParams.url = twimlUrl;
+        }
+
+        const call = await this.client.calls.create(callParams);
+
+        logger.info(
+          { callSid: call.sid, status: call.status, to: options.to, hasInlineTwiml: Boolean(callParams.twiml) },
+          '[LIVE TWILIO] Outbound call successfully placed'
+        );
+
+        return {
+          providerCallId: call.sid,
+          status: call.status === 'queued' ? 'queued' : 'initiated',
+          isSimulated: false,
+          providerDetails: {
+            provider: 'TWILIO',
+            callSid: call.sid,
+            accountSid: call.accountSid,
+            direction: call.direction,
+            status: call.status
+          }
+        };
+      } catch (error) {
+        const err = error as Error;
+        const combinedError = telnyxError
+          ? `${telnyxError.message} | Twilio: ${err.message}`
+          : err.message;
+        logger.error(
+          { error: combinedError, to: options.to, callAttemptId: options.callAttemptId },
+          '[LIVE TELEPHONY] Outbound call failed on both carriers'
+        );
+        throw new Error(combinedError);
+      }
+    }
+
+    if (telnyxError) {
+      throw telnyxError;
+    }
+
+    throw new Error('No live telephony provider configured (Telnyx API key or Twilio credentials missing).');
   }
 
   /**

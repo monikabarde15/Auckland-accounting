@@ -152,7 +152,7 @@ contactsRouter.get('/export', requirePermission('contacts.export'), validateQuer
 contactsRouter.post(
   '/import/preview',
   requirePermission('contacts.import'),
-  upload.single('file'),
+  upload.single('file') as any,
   async (req, res, next) => {
     try {
       let content: string | Buffer | undefined;

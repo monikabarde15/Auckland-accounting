@@ -101,6 +101,15 @@ export function getCanonicalWebhookBase(req?: any): string {
   return 'https://auckland-accountin.onrender.com';
 }
 
+export function renderSayTag(text: string): string {
+  const escaped = escapeXml(text);
+  const isHindi = /[\u0900-\u097F]/.test(text) || /\b(namaste|shukriya|dhanyavaad|aapka|aapne|kripya|alvida|dabaye|vikalp|chuna|darj)\b/i.test(text);
+  if (isHindi) {
+    return `<Say voice="Polly.Aditi" language="hi-IN">${escaped}</Say>`;
+  }
+  return `<Say voice="Polly.Aria-Neural" language="en-NZ">${escaped}</Say>`;
+}
+
 /**
  * Generates TwiML XML string for an individual question in the graph.
  */
@@ -181,7 +190,7 @@ export async function renderQuestionTwiml(
   if (question.type === QuestionType.MESSAGE_ONLY) {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">${escapedPrompt}</Say>
+  ${renderSayTag(promptText)}
   <Hangup/>
 </Response>`;
   }
@@ -192,7 +201,7 @@ export async function renderQuestionTwiml(
     const statusUrl = escapeXml(`${webhookBase}/api/voice/status?callAttemptId=${encodeURIComponent(callAttemptId)}`);
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">${escapedPrompt}</Say>
+  ${renderSayTag(promptText)}
   <Dial callerId="${escapeXml(attempt.callJob?.campaign?.callerId || '')}" action="${statusUrl}">${escapeXml(transferNumber)}</Dial>
 </Response>`;
   }
@@ -204,9 +213,9 @@ export async function renderQuestionTwiml(
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather input="dtmf" numDigits="${maxDigits}" finishOnKey="${finishKey}" timeout="${question.timeoutSeconds || 8}" action="${gatherActionUrl}" method="POST">
-    <Say voice="alice">${escapedPrompt}</Say>
+    ${renderSayTag(promptText)}
   </Gather>
-  <Say voice="alice">We did not receive your input. Goodbye.</Say>
+  ${renderSayTag('We did not receive your input. Goodbye.')}
   <Hangup/>
 </Response>`;
   }
@@ -215,10 +224,10 @@ export async function renderQuestionTwiml(
   const numDigits = 1;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather input="dtmf" numDigits="${numDigits}" timeout="${question.timeoutSeconds || 6}" action="${gatherActionUrl}" method="POST">
-    <Say voice="alice">${escapedPrompt}</Say>
+  <Gather input="dtmf" numDigits="${numDigits}" timeout="${question.timeoutSeconds || 8}" action="${gatherActionUrl}" method="POST">
+    ${renderSayTag(promptText)}
   </Gather>
-  <Say voice="alice">We did not receive your response. Goodbye.</Say>
+  ${renderSayTag('We did not receive your response. Goodbye.')}
   <Hangup/>
 </Response>`;
 }
@@ -299,29 +308,60 @@ export async function processGatheredResponse(
     'Recorded questionnaire response'
   );
 
-  // If question is not found or this was a general call, respond gracefully
+  const isHindiContext = 
+    /[\u0900-\u097F]/.test(question?.questionText || '') ||
+    /\b(namaste|shukriya|dhanyavaad|aapka|kripya)\b/i.test(question?.questionText || '') ||
+    /\b(namaste|shukriya|dhanyavaad|aapka|kripya)\b/i.test(attempt?.callJob?.campaign?.description || '');
+
+  // If question is not found or this was a general call, respond gracefully with the full script
   if (!question) {
-    const confirmationText = cleanDigits === '1'
-      ? 'Thank you. Your confirmation has been recorded successfully.'
-      : cleanDigits === '2'
-      ? 'Thank you. We have noted your response.'
-      : `Thank you. You pressed ${cleanDigits}. Your response has been recorded.`;
+    let confirmationText = '';
+    if (isHindiContext) {
+      confirmationText = cleanDigits === '1'
+        ? 'Dhanyavaad! Aapne 1 dabaya hai. Aapka GST aur tax return confirm ho gaya hai aur Auckland Accounting dwara jama kar diya gaya hai. Alvida.'
+        : cleanDigits === '2'
+        ? 'Dhanyavaad! Aapne 2 dabaya hai. Aapka anurodh darj kar liya gaya hai. Auckland Accounting se hamare senior accountant aapse jald hi sampark karenge. Alvida.'
+        : `Aapne ${cleanDigits} dabaya hai. Auckland Accounting ne aapka response darj kar liya hai. Sahayata ke liye kripya hamare office se sampark karein. Dhanyavaad, alvida.`;
+    } else {
+      confirmationText = cleanDigits === '1'
+        ? 'Thank you! You pressed 1 to confirm. Your tax filing verification has been confirmed and submitted to Inland Revenue. Auckland Accounting wishes you a wonderful day. Goodbye.'
+        : cleanDigits === '2'
+        ? 'Thank you! You pressed 2 to reschedule. Your request has been recorded and our senior accountant will follow up with you shortly. Have a wonderful day. Goodbye.'
+        : `You selected option ${cleanDigits}. Auckland Accounting has recorded your selection. For further assistance, please contact our office. Have a wonderful day. Goodbye.`;
+    }
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">${confirmationText}</Say>
-  <Pause length="1"/>
-  <Say voice="alice">Have a wonderful day. Goodbye.</Say>
+  ${renderSayTag(confirmationText)}
   <Hangup/>
 </Response>`;
   }
 
-  // If no option matched and it was a strict choice question
+  // If no option matched (e.g. user pressed 3, 4, 5 etc. or other key), deliver graceful response script just like test call
   if (!matchedOption && question.type !== QuestionType.NUMERIC && question.type !== QuestionType.RATING) {
+    const responseScript = isHindiContext
+      ? `Aapne ${cleanDigits || 'kuch'} dabaya hai. Auckland Accounting ne aapka response darj kar liya hai. Sahayata ke liye kripya hamare office se sampark karein. Dhanyavaad, alvida.`
+      : `You selected option ${cleanDigits || 'an unlisted key'}. Auckland Accounting has recorded your response. For further assistance, please contact our office. Have a wonderful day. Goodbye.`;
+
+    if (callAttemptId) {
+      try {
+        await prisma.callResponse.create({
+          data: {
+            callAttemptId,
+            questionId: questionId + '-response',
+            responseValue: cleanDigits || 'OTHER',
+            responseText: `(User input ${cleanDigits}): ${responseScript}`,
+            inputMethod: 'DTMF',
+            isValid: true
+          }
+        });
+      } catch (e) {}
+    }
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">That is an invalid selection. Let us try once more.</Say>
-  <Redirect method="POST">${webhookBase}/api/voice/twiml/${encodeURIComponent(callAttemptId)}/${encodeURIComponent(questionId)}</Redirect>
+  ${renderSayTag(responseScript)}
+  <Hangup/>
 </Response>`;
   }
 
@@ -330,10 +370,20 @@ export async function processGatheredResponse(
   const nextQuestionId = matchedOption?.nextQuestionId;
 
   if (nextAction === NextAction.END_CALL) {
-    const contactName = attempt?.callJob?.contact?.name || 'there';
-    const endScript = cleanDigits === '1' 
-      ? `Thank you ${contactName}. Your return authorization has been recorded and submitted to Inland Revenue. Goodbye.`
-      : `Thank you ${contactName}. Your response has been recorded. Goodbye.`;
+    let endScript = '';
+    if (isHindiContext) {
+      endScript = cleanDigits === '1'
+        ? 'Dhanyavaad! Aapne 1 dabaya hai. Aapka GST aur tax return confirm ho gaya hai aur Auckland Accounting dwara jama kar diya gaya hai. Alvida.'
+        : cleanDigits === '2'
+        ? 'Dhanyavaad! Aapne 2 dabaya hai. Aapka anurodh darj kar liya gaya hai. Auckland Accounting se hamare senior accountant aapse jald hi sampark karenge. Alvida.'
+        : `Aapne ${cleanDigits} dabaya hai. Auckland Accounting ne aapka response darj kar liya hai. Alvida.`;
+    } else {
+      endScript = cleanDigits === '1' 
+        ? 'Thank you! You pressed 1 to confirm. Your tax filing verification has been confirmed and submitted to Inland Revenue. Auckland Accounting wishes you a wonderful day. Goodbye.'
+        : cleanDigits === '2'
+        ? 'Thank you! You pressed 2 to reschedule. Your request has been recorded and our senior accountant will follow up with you shortly. Have a wonderful day. Goodbye.'
+        : `You selected option ${cleanDigits}. Auckland Accounting has recorded your selection. Have a wonderful day. Goodbye.`;
+    }
       
     if (callAttemptId) {
       try {
@@ -351,16 +401,19 @@ export async function processGatheredResponse(
     }
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">${endScript}</Say>
+  ${renderSayTag(endScript)}
   <Hangup/>
 </Response>`;
   }
 
   if (nextAction === NextAction.TRANSFER) {
     const transferNumber = question.transferPhoneNumber || env.TWILIO_PHONE_NUMBER || '';
+    const transferMsg = isHindiContext 
+      ? 'Aapki call hamare accountant ko transfer ki ja rahi hai. Kripya line par bane rahein.'
+      : 'Transferring you now. Please hold.';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Transferring you now. Please hold.</Say>
+  ${renderSayTag(transferMsg)}
   <Dial callerId="${attempt?.callJob?.campaign?.callerId || ''}">${transferNumber}</Dial>
 </Response>`;
   }
@@ -368,8 +421,8 @@ export async function processGatheredResponse(
   // Continue to Next Question
   if (nextQuestionId) {
     const transitionPhrase = matchedOption?.optionLabel 
-      ? `You selected ${matchedOption.optionLabel}.` 
-      : 'Thank you.';
+      ? (isHindiContext ? `Aapne chuna: ${matchedOption.optionLabel}.` : `You selected ${matchedOption.optionLabel}.`)
+      : (isHindiContext ? 'Dhanyavaad.' : 'Thank you.');
     return renderQuestionTwiml(callAttemptId, nextQuestionId, 0, attempt, transitionPhrase);
   }
 
@@ -386,8 +439,8 @@ export async function processGatheredResponse(
 
       if (nextSequential) {
         const transitionPhrase = matchedOption?.optionLabel 
-          ? `You selected ${matchedOption.optionLabel}.` 
-          : 'Thank you.';
+          ? (isHindiContext ? `Aapne chuna: ${matchedOption.optionLabel}.` : `You selected ${matchedOption.optionLabel}.`)
+          : (isHindiContext ? 'Dhanyavaad.' : 'Thank you.');
         return renderQuestionTwiml(callAttemptId, nextSequential.id, 0, attempt, transitionPhrase);
       }
     } catch (err) {
@@ -396,10 +449,20 @@ export async function processGatheredResponse(
   }
 
   // End of questionnaire
-  const contactName = attempt?.callJob?.contact?.name || 'there';
-  const finalScriptToSay = cleanDigits === '1'
-    ? `Thank you ${contactName}. Your return authorization has been recorded and submitted to Inland Revenue. Goodbye.`
-    : `Thank you ${contactName}. We have recorded your selection. Goodbye.`;
+  let finalScriptToSay = '';
+  if (isHindiContext) {
+    finalScriptToSay = cleanDigits === '1'
+      ? 'Dhanyavaad! Aapne 1 dabaya hai. Aapka GST aur tax return confirm ho gaya hai aur Auckland Accounting dwara jama kar diya gaya hai. Alvida.'
+      : cleanDigits === '2'
+      ? 'Dhanyavaad! Aapne 2 dabaya hai. Aapka anurodh darj kar liya gaya hai. Auckland Accounting se hamare senior accountant aapse jald hi sampark karenge. Alvida.'
+      : `Aapne ${cleanDigits} dabaya hai. Auckland Accounting ne aapka response darj kar liya hai. Alvida.`;
+  } else {
+    finalScriptToSay = cleanDigits === '1'
+      ? 'Thank you! You pressed 1 to confirm. Your tax filing verification has been confirmed and submitted to Inland Revenue. Auckland Accounting wishes you a wonderful day. Goodbye.'
+      : cleanDigits === '2'
+      ? 'Thank you! You pressed 2 to reschedule. Your request has been recorded and our senior accountant will follow up with you shortly. Have a wonderful day. Goodbye.'
+      : `You selected option ${cleanDigits}. Auckland Accounting has recorded your selection. Have a wonderful day. Goodbye.`;
+  }
 
   if (callAttemptId) {
     try {
@@ -418,7 +481,7 @@ export async function processGatheredResponse(
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">${finalScriptToSay}</Say>
+  ${renderSayTag(finalScriptToSay)}
   <Hangup/>
 </Response>`;
 }

@@ -53,7 +53,7 @@ export function getRedisConnectionOptions(): any {
   return {
     host: env.REDIS_HOST,
     port: env.REDIS_PORT,
-    password: env.REDIS_PASSWORD || undefined,
+    password: (env.REDIS_PASSWORD && env.REDIS_PASSWORD !== 'none') ? env.REDIS_PASSWORD : undefined,
     ...baseOptions
   };
 }

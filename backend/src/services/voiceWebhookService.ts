@@ -1,7 +1,7 @@
 import { prisma } from './prisma.js';
 import { CallStatus, CallJobStatus } from '@prisma/client';
 import { logger } from '../middleware/logger.js';
-import { renderQuestionTwiml, processGatheredResponse } from './ivr/ivrEngine.js';
+import { renderQuestionTwiml, processGatheredResponse, renderSayTag } from './ivr/ivrEngine.js';
 import { evaluateAndScheduleRetry } from './retry/retryService.js';
 
 export interface TwilioWebhookPayload {
@@ -110,7 +110,8 @@ export class VoiceWebhookService {
     if (!targetQuestionId) {
       const qList = attempt.callJob.campaign.questionnaire?.questions || [];
       if (qList.length === 0) {
-        return '<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">No questions configured. Goodbye.</Say><Hangup/></Response>';
+        const campaignPrompt = attempt.callJob.campaign.description || 'Kia ora, this is Auckland Accounting Services.';
+        return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="dtmf" numDigits="1" timeout="8">${renderSayTag(campaignPrompt)}</Gather>${renderSayTag('Thank you. Goodbye.')}<Hangup/></Response>`;
       }
       targetQuestionId = qList[0].id;
     }

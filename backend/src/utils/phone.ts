@@ -36,8 +36,24 @@ export function normalizePhoneNumber(
     };
   }
 
+  let countryToUse: CountryCode = defaultCountry;
+  let cleanInput = trimmed;
+  const digitsOnly = cleanInput.replace(/\D/g, '');
+
+  // Auto-detect Indian mobile numbers if entered without '+' (e.g. 7089526977, 07089526977 or 917089526977)
+  if (/^[6-9]\d{9}$/.test(digitsOnly) && !cleanInput.startsWith('+')) {
+    countryToUse = 'IN';
+    cleanInput = `+91${digitsOnly}`;
+  } else if (/^0[6-9]\d{9}$/.test(digitsOnly) && !cleanInput.startsWith('+')) {
+    countryToUse = 'IN';
+    cleanInput = `+91${digitsOnly.slice(1)}`;
+  } else if (/^91[6-9]\d{9}$/.test(digitsOnly) && !cleanInput.startsWith('+')) {
+    countryToUse = 'IN';
+    cleanInput = `+${digitsOnly}`;
+  }
+
   try {
-    const phoneNumber = parsePhoneNumberWithError(trimmed, defaultCountry);
+    const phoneNumber = parsePhoneNumberWithError(cleanInput, countryToUse);
 
     if (!phoneNumber.isValid()) {
       return {
@@ -71,5 +87,5 @@ export function normalizePhoneNumber(
  */
 export function isPhoneNumberValid(rawInput: string, defaultCountry: CountryCode = 'NZ'): boolean {
   if (!rawInput || typeof rawInput !== 'string') return false;
-  return isValidPhoneNumber(rawInput.trim(), defaultCountry);
+  return normalizePhoneNumber(rawInput, defaultCountry).isValid;
 }

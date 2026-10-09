@@ -5,7 +5,7 @@
 
 services:
   - type: web
-    name: auckland-accounting
+    name: auckland-accountin
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
@@ -21,10 +21,10 @@ services:
         value: 5000
 
       - key: BASE_URL
-        value: https://auckland-accounting.onrender.com
+        value: https://auckland-accountin.onrender.com
 
       - key: TWILIO_WEBHOOK_BASE_URL
-        value: https://auckland-accounting.onrender.com
+        value: https://auckland-accountin.onrender.com
 
       - key: LOG_LEVEL
         value: info
@@ -44,7 +44,7 @@ services:
         value: "6379"
 
       - key: REDIS_PASSWORD
-        value: ""
+        value: "none"
 
       # JWT Secrets
       - key: JWT_SECRET

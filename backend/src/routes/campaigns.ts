@@ -209,6 +209,16 @@ router.post(
   requirePermission('campaigns.start'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const contactIds = req.body?.contactIds || req.body?.targetContactIds;
+      if (Array.isArray(contactIds) && contactIds.length > 0) {
+        await attachContactsToCampaign(req.params.id, {
+          contactIds,
+          userId: req.user?.id,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent']
+        });
+      }
+
       const updated = await transitionCampaignStatus(
         req.params.id,
         CampaignStatus.RUNNING,
@@ -259,6 +269,16 @@ router.post(
   requirePermission('campaigns.resume'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const contactIds = req.body?.contactIds || req.body?.targetContactIds;
+      if (Array.isArray(contactIds) && contactIds.length > 0) {
+        await attachContactsToCampaign(req.params.id, {
+          contactIds,
+          userId: req.user?.id,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent']
+        });
+      }
+
       const updated = await transitionCampaignStatus(
         req.params.id,
         CampaignStatus.RUNNING,

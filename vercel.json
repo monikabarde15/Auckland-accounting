@@ -3,7 +3,7 @@
   "outputDirectory": "frontend/dist",
   "build": {
     "env": {
-      "VITE_API_URL": "https://auckland-accounting.onrender.com"
+      "VITE_API_URL": "https://auckland-accountin.onrender.com"
     }
   },
   "rewrites": [
