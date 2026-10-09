@@ -9,6 +9,7 @@ import { BadRequestError } from '../errors/AppError.js';
 import { CallStatus } from '@prisma/client';
 import { logger } from '../middleware/logger.js';
 import { getCanonicalWebhookBase, renderSayTag } from '../services/ivr/ivrEngine.js';
+import { normalizePhoneNumber } from '../utils/phone.js';
 
 export const callsRouter = Router();
 

@@ -227,7 +227,7 @@ voiceRouter.post('/telnyx/webhook', async (req: Request, res: Response) => {
       if (eventType === 'call.answered') {
         await prisma.callAttempt.update({
           where: { id: callAttemptId },
-          data: { status: 'IN_PROGRESS' as any, answeredAt: new Date() }
+          data: { status: 'IN_PROGRESS' as any } as any
         }).catch(() => {});
 
         let promptText = 'Kia ora. This is an automated message from Auckland Accounting regarding your account. Please press 1 to confirm, or press 2 to reschedule.';
@@ -281,7 +281,7 @@ voiceRouter.post('/telnyx/webhook', async (req: Request, res: Response) => {
             responseText: `(Bot speaking): ${promptText}`,
             inputMethod: 'DTMF',
             isValid: true
-          }
+          } as any
         }).catch(() => {});
 
         // Speak prompt and gather keypad response
@@ -325,7 +325,7 @@ voiceRouter.post('/telnyx/webhook', async (req: Request, res: Response) => {
               responseText: digit === '1' ? 'User confirmed (Pressed 1)' : 'User requested reschedule (Pressed 2)',
               inputMethod: 'DTMF',
               isValid: true
-            }
+            } as any
           }).catch(() => {});
 
           const apiKey = env.TELNYX_API_KEY || process.env.TELNYX_API_KEY;
